@@ -41,7 +41,7 @@ if train_button:
     with st.spinner(f"⏳ 正在拉取全球聯動數據，並為 {raw_ticker} 建立漲跌幅矩陣..."):
         try:
             # 1. 抓取全球聯動數據
-            df = yf.download(raw_ticker, start="2020-01-01", auto_adjust=True)
+            df = yf.download(raw_ticker, start="2020-01-01", auto_adjust=False)
             nasdaq = yf.download("^IXIC", start="2020-01-01", auto_adjust=True)
             sse = yf.download("000001.SS", start="2020-01-01", auto_adjust=True)
             hsi = yf.download("^HSI", start="2020-01-01", auto_adjust=True)
