@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler
 # 網頁標題與設定
 st.set_page_config(page_title="AI 跨國多因子量化終端", layout="wide")
 st.title("⚖️ AI 深度學習預測 × 多因子基本面量化終端")
-st.markdown("本系統已成功升級！已啟用**「動態基準降級策略 (Dynamic Fallback)」**與**「港股動態長度校正機制」**，全面兼容 4 位與 5 位數港股代碼。")
+st.markdown("本系統已成功升級！已融合**「動態基準降級策略」**、**「港股動態長度校正」**與最新**「歷年財報營收動態視覺化大屏」**。")
 
 # 側邊欄設定
 st.sidebar.header("⚙️ 交易員控制面板")
@@ -35,24 +35,83 @@ class RationalLSTM(nn.Module):
         return self.linear(lstm_out[:, -1, :])
 
 if train_button:
-    # 🔥【終極防呆機制】解決 Yahoo Finance 對港股 4 位數/5 位數的歷史數據代碼衝突
+    # 港股 4 位數/5 位數長度校正防呆
     processed_ticker = raw_ticker
-    
-    # 移除可能帶有的 .HK 後綴先進行純數字清洗
     clean_numeric = raw_ticker.replace(".HK", "").strip()
-    
     if clean_numeric.isdigit():
-        # 轉成整數再轉回來，自動去掉最前面多餘的零（例如 00285 -> 285）
         val = int(clean_numeric)
-        # Yahoo Finance 港股標準：代碼部分必須維持 4 碼（不夠前面補0，多了如 285 補成 0285）
         processed_ticker = f"{str(val).zfill(4)}.HK"
         st.info(f"🤖 偵測到數字輸入，系統已啟動長度校正，優化代碼格式為標準 Yahoo 港股：`{processed_ticker}`")
 
     currency_symbol = "HK$" if ".HK" in processed_ticker else "$"
     
-    with st.spinner(f"⏳ 正在拉取全球聯動數據，構建『技術 × 智慧動態估值』多因子矩陣..."):
+    # ==========================================
+    # 📊 【全新功能】歷年財報數據動態拉取與視覺化
+    # ==========================================
+    with st.spinner(f"📥 正在穿透財務數據庫，下載 {processed_ticker} 歷年損益表..."):
         try:
-            # 1. 嘗試抓取基本面數據
+            ticker_obj = yf.Ticker(processed_ticker)
+            # 獲取年度損益表 (Annual Financials)
+            financials = ticker_obj.financials
+            
+            if financials is not None and not financials.empty:
+                st.subheader(f"📈 {processed_ticker} 歷年核心財報營收大屏")
+                
+                # 提取「總營收」與「淨利潤」
+                # yfinance 的欄位名稱有時會因版本而異，做個安全相容防護
+                rev_key = 'Total Revenue' if 'Total Revenue' in financials.index else (financials.index[0] if 'Revenue' in financials.index[0] else None)
+                net_key = 'Net Income' if 'Net Income' in financials.index else None
+                
+                # 自動搜尋相似欄位
+                if not rev_key:
+                    rev_indices = [idx for idx in financials.index if 'Revenue' in str(idx) or 'Turnover' in str(idx)]
+                    if rev_indices: rev_key = rev_indices[0]
+                if not net_key:
+                    net_indices = [idx for idx in financials.index if 'Net Income' in str(idx) or 'Profit' in str(idx)]
+                    if net_indices: net_key = net_indices[0]
+
+                if rev_key and net_key:
+                    # 提取數據並轉置，以年份為 Index
+                    df_finance = financials.loc[[rev_key, net_key]].T
+                    df_finance.columns = ['總營收 (Total Revenue)', '淨利潤 (Net Income)']
+                    
+                    # 將日期格式化為年份字串 (如 2023, 2024)
+                    df_finance.index = pd.to_datetime(df_finance.index).strftime('%Y')
+                    df_finance = df_finance.sort_index(ascending=True) # 依年份正序排列
+                    
+                    # 轉換單位為「百萬元 (Millions)」讓圖表更美觀
+                    df_finance_m = df_finance / 1_000_000
+                    
+                    # 建立 Streamlit 兩欄佈局展示
+                    f_chart_col, f_table_col = st.columns([2, 1])
+                    
+                    with f_chart_col:
+                        st.markdown(f"**📊 歷年營收與淨利走勢對比 (單位: 百萬 {currency_symbol})**")
+                        # 繪製並排長條圖
+                        st.bar_chart(df_finance_m)
+                        
+                    with f_table_col:
+                        st.markdown("**📋 原始財務數據審計表**")
+                        # 格式化表格數字加千分位
+                        df_formatted = df_finance_m.copy()
+                        df_formatted['總營收 (Total Revenue)'] = df_formatted['總營收 (Total Revenue)'].map('{:,.2f} M'.format)
+                        df_formatted['淨利潤 (Net Income)'] = df_formatted['淨利潤 (Net Income)'].map('{:,.2f} M'.format)
+                        st.dataframe(df_formatted, use_container_width=True)
+                else:
+                    st.warning("⚠️ 財報解析成功，但未找到標準的 Revenue 或 Net Income 欄位項目。")
+            else:
+                st.warning("⚠️ 該資產未在交易所披露標準的年度損益表，跳過財報視覺化面板。")
+        except Exception as e:
+            st.warning(f"⚠️ 財報數據流暫時繁忙 ({str(e)})，優先保護底層 AI 核心運作。")
+
+    st.markdown("---")
+
+    # ==========================================
+    # ⏳ 核心多因子量化預測大腦
+    # ==========================================
+    with st.spinner(f"⏳ 正在同步全球大盤，構建『技術 × 智慧估值』多因子矩陣並訓練 AI..."):
+        try:
+            # 1. 嘗試抓取即時基本面估值快照
             pe_ratio = None
             pb_ratio = None
             forward_pe = None
@@ -60,13 +119,11 @@ if train_button:
             is_rate_limited = False
             
             try:
-                ticker_obj = yf.Ticker(processed_ticker)
                 info = ticker_obj.info
                 if info and isinstance(info, dict) and len(info) > 0 and 'trailingPE' in info:
                     pe_ratio = info.get('trailingPE', None)
                     pb_ratio = info.get('priceToBook', None)
                     forward_pe = info.get('forwardPE', None)
-                    
                     raw_yield = info.get('dividendYield', 0.0)
                     if raw_yield is None: raw_yield = 0.0
                     dividend_yield = raw_yield if raw_yield > 1.0 else raw_yield * 100
@@ -75,7 +132,7 @@ if train_button:
             except Exception:
                 is_rate_limited = True
                 
-            # 動態防禦核心
+            # 動態防禦基準
             if is_rate_limited:
                 if any(tech_symbol in processed_ticker for tech_symbol in ['TSLA', 'NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOG', 'META', 'AMD', 'NFLX']):
                     st.warning("⚠️ 觸發流量限制！已為美股高成長資產啟動【科技龍頭動態估值錨定方案】。")
@@ -96,7 +153,7 @@ if train_button:
                     forward_pe = 15.00
                     dividend_yield = 2.10
 
-            # 2. 歷史數據抓取 (此時 processed_ticker 已完美校正為 0285.HK)
+            # 2. 歷史數據抓取
             df = yf.download(processed_ticker, start="2020-01-01", auto_adjust=False)
             nasdaq = yf.download("^IXIC", start="2020-01-01", auto_adjust=True)
             sse = yf.download("000001.SS", start="2020-01-01", auto_adjust=True)
@@ -111,9 +168,7 @@ if train_button:
 
                 current_price = df['Close'].iloc[-1]
 
-                # ==========================================
-                # 📊 模組一：基本面估值面板
-                # ==========================================
+                # 估值快照顯示
                 status_suffix = " (🤖 智慧動態錨定值)" if is_rate_limited else " (📊 實時市場數據)"
                 st.subheader(f"📊 {processed_ticker} 當前基本面估值快照{status_suffix}")
                 f_col1, f_col2, f_col3, f_col4 = st.columns(4)
@@ -133,7 +188,7 @@ if train_button:
                 st.markdown("---")
 
                 # ==========================================
-                # 🧮 模組二：數據清洗與歷史防禦矩陣構建
+                # 🧮 數據清洗與特徵矩陣建構
                 # ==========================================
                 df['Return'] = df['Close'].pct_change()
                 df['Vol_Change'] = df['Volume'].pct_change()
@@ -161,7 +216,7 @@ if train_button:
                 df = df.ffill().bfill().fillna(0.0)
 
                 # ==========================================
-                # 🤖 模組三：AI 深度學習預測大腦
+                # 🤖 AI 深度學習大腦訓練與預測
                 # ==========================================
                 st.subheader("🧠 LSTM 多因子融合神經網路預報")
                 
@@ -260,4 +315,4 @@ if train_button:
         except Exception as e:
             st.error(f"運行出錯: {str(e)}")
 else:
-    st.info("💡 請點擊左側面板按鈕，啟動『技術 × 智慧動態估值』雙引擎量化分析。")
+    st.info("💡 請點擊左側面板按鈕，啟動『技術 × 智慧動態估值 × 歷年財報大屏』三位一體量化分析。")
