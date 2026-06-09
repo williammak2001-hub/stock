@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from sklearn.preprocessing import StandardScaler
+import re
 
 # 網頁標題與設定
 st.set_page_config(page_title="AI 量化跨國理性預報台", layout="wide")
@@ -39,13 +40,15 @@ if train_button:
     
     with st.spinner(f"⏳ 正在拉取全球聯動數據，並為 {raw_ticker} 建立漲跌幅矩陣..."):
         try:
-            # 🔥 核心防禦：自動修正港股開頭為 0 的代碼問題 (例如 0066.HK -> 66.HK)
+            # 🔥【終極防彈清洗】精準處理港股 0066.HK -> 66.HK 的對齊問題
             api_ticker = raw_ticker
-            if ".HK" in raw_ticker and raw_ticker.split(".")[0].startswith("0"):
-                ticker_num = raw_ticker.split(".")[0].lstrip("0")
-                # 預防 "0000" 的極端狀況，如果全被擼光了就留一個 0
-                if not ticker_num: ticker_num = "0"
-                api_ticker = f"{ticker_num}.HK"
+            if ".HK" in raw_ticker:
+                # 提取點前面的數字部分
+                match = re.match(r"^0*(\d+)\.HK$", raw_ticker)
+                if match:
+                    api_ticker = f"{match.group(1)}.HK"
+                else:
+                    api_ticker = raw_ticker
 
             # 1. 抓取全球聯動數據 (auto_adjust=False 確保獲取真實市場價)
             df = yf.download(api_ticker, start="2020-01-01", auto_adjust=False)
@@ -54,7 +57,7 @@ if train_button:
             hsi = yf.download("^HSI", start="2020-01-01", auto_adjust=True)
             
             if df.empty:
-                st.error(f"❌ 找不到代碼「{raw_ticker}」，請檢查格式是否正確！")
+                st.error(f"❌ 找不到代碼「{raw_ticker}」（轉換後：{api_ticker}），請檢查格式是否正確！")
             else:
                 for d in [df, nasdaq, sse, hsi]:
                     if isinstance(d.columns, pd.MultiIndex):
