@@ -5,7 +5,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from sklearn.preprocessing import StandardScaler
-import re
 
 # 網頁標題與設定
 st.set_page_config(page_title="AI 量化跨國理性預報台", layout="wide")
@@ -40,25 +39,18 @@ if train_button:
     
     with st.spinner(f"⏳ 正在拉取全球聯動數據，並為 {raw_ticker} 建立漲跌幅矩陣..."):
         try:
-            # 🔥【終極防彈清洗】精準處理港股 0066.HK -> 66.HK 的對齊問題
-            api_ticker = raw_ticker
-            if ".HK" in raw_ticker:
-                # 提取點前面的數字部分
-                match = re.match(r"^0*(\d+)\.HK$", raw_ticker)
-                if match:
-                    api_ticker = f"{match.group(1)}.HK"
-                else:
-                    api_ticker = raw_ticker
-
-            # 1. 抓取全球聯動數據 (auto_adjust=False 確保獲取真實市場價)
-            df = yf.download(api_ticker, start="2020-01-01", auto_adjust=False)
+            # 1. 隔離抓取個股數據 (關閉自動復權以獲得真實市價)
+            df = yf.download(raw_ticker, start="2020-01-01", auto_adjust=False)
+            
+            # 2. 安全抓取全球大盤數據 (指數類開啟 auto_adjust 避免格式錯亂)
             nasdaq = yf.download("^IXIC", start="2020-01-01", auto_adjust=True)
             sse = yf.download("000001.SS", start="2020-01-01", auto_adjust=True)
             hsi = yf.download("^HSI", start="2020-01-01", auto_adjust=True)
             
             if df.empty:
-                st.error(f"❌ 找不到代碼「{raw_ticker}」（轉換後：{api_ticker}），請檢查格式是否正確！")
+                st.error(f"❌ Yahoo Finance 拒絕返回「{raw_ticker}」的數據，請確認該股票當前是否正常交易。")
             else:
+                # 熨平所有 MultiIndex 欄位
                 for d in [df, nasdaq, sse, hsi]:
                     if isinstance(d.columns, pd.MultiIndex):
                         d.columns = d.columns.get_level_values(0)
@@ -66,7 +58,7 @@ if train_button:
                 # 保存最後一天的真實市場價格
                 current_price = df['Close'].iloc[-1]
 
-                # 2. 全面轉化為每日漲跌幅 (Daily Returns)
+                # 3. 全面轉化為每日漲跌幅 (Daily Returns)
                 df['Return'] = df['Close'].pct_change()
                 df['Vol_Change'] = df['Volume'].pct_change()
                 df['MACD_Norm'] = (df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()) / df['Close']
@@ -75,7 +67,7 @@ if train_button:
                 sse['SSE_Return'] = sse['Close'].pct_change()
                 hsi['HSI_Return'] = hsi['Close'].pct_change()
                 
-                # 合併特徵並處理時差
+                # 合併特徵並處理跨國時差與休市空值
                 df = df.join(nasdaq['Nas_Return'], how='left')
                 df = df.join(sse['SSE_Return'], how='left')
                 df = df.join(hsi['HSI_Return'], how='left')
@@ -88,11 +80,11 @@ if train_button:
                 # 強力修復：防止 inf 破壞 StandardScaler
                 data_matrix = np.nan_to_num(data_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
-                # 3. 數據標準化
+                # 4. 數據標準化
                 scaler = StandardScaler()
                 scaled_data = scaler.fit_transform(data_matrix)
 
-                # 4. 製作時間窗口
+                # 5. 製作時間窗口
                 lookback = 10
                 X, y = [], []
                 for i in range(len(scaled_data) - lookback):
@@ -109,7 +101,7 @@ if train_button:
                 y_train_t = torch.FloatTensor(y[:train_size])
                 X_test_t = torch.FloatTensor(X_test)
 
-                # 5. 訓練模型
+                # 6. 訓練模型
                 model = RationalLSTM(num_features=len(feature_cols))
                 criterion = nn.MSELoss()
                 optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
@@ -123,14 +115,14 @@ if train_button:
                     loss.backward()
                     optimizer.step()
 
-                # 6. 預測
+                # 7. 預測
                 model.eval()
                 with torch.no_grad():
                     test_preds = model(X_test_t).numpy()
                     latest_10_days = scaled_data[-lookback:].reshape(1, lookback, len(feature_cols))
                     next_return_scaled = model(torch.FloatTensor(latest_10_days)).item()
 
-                # 7. 還原絕對股價
+                # 8. 還原絕對股價
                 dummy_pred = np.zeros((len(test_preds), len(feature_cols)))
                 dummy_pred[:, 0] = test_preds.flatten()
                 pred_returns = scaler.inverse_transform(dummy_pred)[:, 0]
@@ -152,7 +144,7 @@ if train_button:
                 next_price = current_price * (1 + next_return_real)
                 change = next_return_real * 100
 
-                # 8. 網頁展示
+                # 9. 網頁展示
                 st.success(f"🎉 跨國理性大腦對 {raw_ticker} 訓練完畢！")
                 
                 col1, col2, col3 = st.columns(3)
