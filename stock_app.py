@@ -9,12 +9,12 @@ from sklearn.preprocessing import StandardScaler
 # 網頁標題與設定
 st.set_page_config(page_title="AI 跨國多因子量化終端", layout="wide")
 st.title("⚖️ AI 深度學習預測 × 多因子基本面量化終端")
-st.markdown("本系統已成功升級！已啟用**「未來 20 個交易日波段趨勢大腦」**、**「動態基準降級策略」**與**「歷年財報營收動態視覺化大屏」**。")
+st.markdown("本系統已成功升級！已啟用**「AI 策略歷史實戰回測矩陣」**、**「未來 20 日波段預測大腦」**與**「歷年財報視覺化大屏」**。")
 
 # 側邊欄設定
 st.sidebar.header("⚙️ 交易員控制面板")
 raw_ticker = st.sidebar.text_input("輸入股票代碼", value="1398.HK").upper().strip()
-train_button = st.sidebar.button("🚀 啟動多因子量化訓練")
+train_button = st.sidebar.button("🚀 啟動多因子量化訓練與歷史回測")
 
 st.sidebar.markdown("""
 ---
@@ -35,20 +35,20 @@ class RationalLSTM(nn.Module):
         return self.linear(lstm_out[:, -1, :])
 
 if train_button:
-    # 港股自動補尾巴長度校正防呆
+    # 港股補尾巴格式化
     processed_ticker = raw_ticker
     clean_numeric = raw_ticker.replace(".HK", "").strip()
     if clean_numeric.isdigit():
         val = int(clean_numeric)
         processed_ticker = f"{str(val).zfill(4)}.HK"
-        st.info(f"🤖 偵測到數字輸入，系統已啟動長度校正，優化代碼格式為標準 Yahoo 港股：`{processed_ticker}`")
+        st.info(f"🤖 偵測到數字輸入，系統已優化代碼格式為：`{processed_ticker}`")
 
     currency_symbol = "HK$" if ".HK" in processed_ticker else "$"
     
     # ==========================================
-    # 📊 歷年財報數據視覺化大屏 (財務數據專用流)
+    # 📊 歷年財報數據視覺化大屏
     # ==========================================
-    with st.spinner(f"📥 正在穿透財務數據庫，下載 {processed_ticker} 歷年損益表..."):
+    with st.spinner(f"📥 正在下載 {processed_ticker} 歷年損益表..."):
         try:
             ticker_obj = yf.Ticker(processed_ticker)
             financials = ticker_obj.financials
@@ -81,25 +81,18 @@ if train_button:
                         df_formatted['總營收 (Total Revenue)'] = df_formatted['總營收 (Total Revenue)'].map('{:,.2f} M'.format)
                         df_formatted['淨利潤 (Net Income)'] = df_formatted['淨利潤 (Net Income)'].map('{:,.2f} M'.format)
                         st.dataframe(df_formatted, use_container_width=True)
-            else:
-                st.warning("⚠️ 該資產未在交易所披露標準年度損益表。")
         except Exception as e:
-            st.warning(f"⚠️ 財報數據流繁忙 ({str(e)})，優先保護底層 AI 核心運作。")
+            st.warning(f"⚠️ 財報數據流繁忙 ({str(e)})")
 
     st.markdown("---")
 
     # ==========================================
-    # ⏳ 核心多因子量化預測大腦 (20日波段大師)
+    # ⏳ 核心多因子量化預測與數據清洗
     # ==========================================
-    with st.spinner(f"⏳ 正在構建『技術 × 智慧估值』20日波段多因子矩陣並訓練 AI..."):
+    with st.spinner(f"⏳ 正在構建多因子矩陣並啟動深度學習訓練..."):
         try:
-            # 1. 嘗試抓取即時基本面估值快照
-            pe_ratio = None
-            pb_ratio = None
-            forward_pe = None
-            dividend_yield = 0.0
+            pe_ratio, pb_ratio, forward_pe, dividend_yield = None, None, None, 0.0
             is_rate_limited = False
-            
             try:
                 info = ticker_obj.info
                 if info and isinstance(info, dict) and len(info) > 0 and 'trailingPE' in info:
@@ -109,40 +102,27 @@ if train_button:
                     raw_yield = info.get('dividendYield', 0.0)
                     if raw_yield is None: raw_yield = 0.0
                     dividend_yield = raw_yield if raw_yield > 1.0 else raw_yield * 100
-                else:
-                    is_rate_limited = True
-            except Exception:
-                is_rate_limited = True
+                else: is_rate_limited = True
+            except Exception: is_rate_limited = True
                 
-            # 動態防禦基準
             if is_rate_limited:
                 if any(tech_symbol in processed_ticker for tech_symbol in ['TSLA', 'NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOG', 'META', 'AMD', 'NFLX']):
-                    st.warning("⚠️ 觸發流量限制！已為美股高成長資產啟動【科技龍頭動態估值錨定方案】。")
-                    pe_ratio = 32.50
-                    pb_ratio = 4.80
-                    forward_pe = 28.00
-                    dividend_yield = 0.50
+                    pe_ratio, pb_ratio, forward_pe, dividend_yield = 32.50, 4.80, 28.00, 0.50
+                    st.warning("⚠️ 觸發限流！已啟動【科技龍頭動態估值方案】。")
                 elif ".HK" in processed_ticker:
-                    st.warning("⚠️ 觸發流量限制！已為香港本地資產啟動【港股價值藍籌動態估值錨定方案】。")
-                    pe_ratio = 11.20
-                    pb_ratio = 0.95
-                    forward_pe = 10.50
-                    dividend_yield = 4.80
+                    pe_ratio, pb_ratio, forward_pe, dividend_yield = 11.20, 0.95, 10.50, 4.80
+                    st.warning("⚠️ 觸發限流！已啟動【港股價值藍籌動態估值方案】。")
                 else:
-                    st.warning("⚠️ 觸發流量限制！已啟動【跨國均衡型資產基準估值錨定方案】。")
-                    pe_ratio = 16.50
-                    pb_ratio = 1.80
-                    forward_pe = 15.00
-                    dividend_yield = 2.10
+                    pe_ratio, pb_ratio, forward_pe, dividend_yield = 16.50, 1.80, 15.00, 2.10
+                    st.warning("⚠️ 觸發限流！已啟動【跨國均衡型資產基準方案】。")
 
-            # 2. 歷史數據抓取
             df = yf.download(processed_ticker, start="2020-01-01", auto_adjust=False)
             nasdaq = yf.download("^IXIC", start="2020-01-01", auto_adjust=True)
             sse = yf.download("000001.SS", start="2020-01-01", auto_adjust=True)
             hsi = yf.download("^HSI", start="2020-01-01", auto_adjust=True)
             
             if df.empty:
-                st.error(f"❌ 無法獲取「{processed_ticker}」的歷史價格，請確認代碼是否正確。")
+                st.error(f"❌ 無法獲取「{processed_ticker}」的歷史價格。")
             else:
                 for d in [df, nasdaq, sse, hsi]:
                     if isinstance(d.columns, pd.MultiIndex):
@@ -150,28 +130,7 @@ if train_button:
 
                 current_price = df['Close'].iloc[-1]
 
-                # 顯示基本面快照面版
-                status_suffix = " (🤖 智慧動態錨定值)" if is_rate_limited else " (📊 實時市場數據)"
-                st.subheader(f"📊 {processed_ticker} 當前基本面估值快照{status_suffix}")
-                f_col1, f_col2, f_col3, f_col4 = st.columns(4)
-                
-                with f_col1:
-                    pe_str = f"{pe_ratio:.2f} 倍" if pe_ratio else "N/A"
-                    st.metric(label="📊 歷史滾動本益比 (Trailing P/E)", value=pe_str)
-                with f_col2:
-                    pb_str = f"{pb_ratio:.2f} 倍" if pb_ratio else "N/A"
-                    st.metric(label="📕 股價淨值比 (P/B Ratio)", value=pb_str)
-                with f_col3:
-                    f_pe_str = f"{forward_pe:.2f} 倍" if forward_pe else "N/A"
-                    st.metric(label="🔮 預期本益比 (Forward P/E)", value=f_pe_str)
-                with f_col4:
-                    st.metric(label="💰 歷史股息率 (Dividend Yield)", value=f"{dividend_yield:.2f}%")
-
-                st.markdown("---")
-
-                # ==========================================
-                # 🧮 數據清洗與「20日波段預測目標」建構
-                # ==========================================
+                # 數據特徵工程
                 df['Return'] = df['Close'].pct_change()
                 df['Vol_Change'] = df['Volume'].pct_change()
                 df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
@@ -197,24 +156,11 @@ if train_button:
                 df = df.join(hsi['HSI_Return'], how='left')
                 df = df.ffill().bfill().fillna(0.0)
 
-                # 🔥【大手術：定義20日波段回報目標】
-                # Target_20d 代表從今天買入，持有20個交易日後的累積漲跌幅
+                # 定義20日持倉回報目標
                 df['Target_20d'] = df['Close'].shift(-20) / df['Close'] - 1.0
-                
-                # 因為 shift(-20)，最後20筆數據沒有未來的答案，我們將其剔除不參與訓練
                 clean_df = df.dropna(subset=['Target_20d']).copy()
 
-                # ==========================================
-                # 🤖 AI 深度學習大腦訓練與預測
-                # ==========================================
-                st.subheader("🧠 LSTM 多因子融合神經網路預報 (📅 20日波段趨勢專版)")
-                
-                feature_cols = [
-                    'Return', 'Vol_Change', 'MACD_Norm', 
-                    'Hist_PE_Norm', 'Hist_PB_Norm', 
-                    'Nas_Return', 'SSE_Return', 'HSI_Return'
-                ]
-                
+                feature_cols = ['Return', 'Vol_Change', 'MACD_Norm', 'Hist_PE_Norm', 'Hist_PB_Norm', 'Nas_Return', 'SSE_Return', 'HSI_Return']
                 data_matrix = clean_df[feature_cols].values
                 data_matrix = np.nan_to_num(data_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -252,53 +198,100 @@ if train_button:
 
                 model.eval()
                 with torch.no_grad():
-                    test_preds = model(X_test_t).numpy()
+                    test_preds = model(X_test_t).numpy().flatten()
                     
-                    # 預測「此時此刻」未來 20 天的波段走勢
-                    # 我們拿完整歷史數據（包含最後20天）的最後10天作為特徵輸入
                     full_matrix = df[feature_cols].values
                     full_matrix = np.nan_to_num(full_matrix, nan=0.0, posinf=0.0, neginf=0.0)
                     scaled_full = scaler.transform(full_matrix)
-                    
                     latest_10_days = scaled_full[-lookback:].reshape(1, lookback, len(feature_cols))
                     next_20d_return = model(torch.FloatTensor(latest_10_days)).item()
 
-                # 還原絕對股價走勢圖（測試集）
+                # ==========================================
+                # ⚔️ 【全新核心模組】量化回測交易模擬引擎
+                # ==========================================
+                st.subheader("⚔️ AI 戰略回測矩陣 (測試集實盤模擬驗證)")
+                
                 test_dates = clean_df.index[train_size + lookback:]
-                base_prices = clean_df['Close'].iloc[train_size + lookback:].values
+                test_prices = clean_df['Close'].iloc[train_size + lookback:].values
                 
-                predictions_real_price = base_prices * (1 + test_preds.flatten())
-                y_test_real_price = base_prices * (1 + y_test.flatten())
+                # 初始化回測變數
+                initial_cash = 100000.0
+                cash = initial_cash
+                shares = 0.0
+                equity_curve_ai = []
+                hold_days = 0
                 
-                # 計算當下這一刻，20天后的預測絕對目標價
+                # 執行模擬交易日誌循環
+                for i in range(len(test_prices)):
+                    current_day_price = test_prices[i]
+                    ai_signal = test_preds[i] # AI 對未來20天的預測回報
+                    
+                    # 檢查是否需要平倉（如果持股滿20天，或者預測轉向嚴重看跌）
+                    if shares > 0:
+                        hold_days += 1
+                        if hold_days >= 20 or ai_signal < -0.02:
+                            cash = shares * current_day_price
+                            shares = 0.0
+                            hold_days = 0
+                    
+                    # 檢查是否需要開倉買入（AI強烈看漲且當前為現金空倉）
+                    elif cash > 0 and ai_signal > 0.02:
+                        shares = cash / current_day_price
+                        cash = 0.0
+                        hold_days = 0
+                        
+                    # 計算今日總資產淨值 (Equity Value)
+                    current_equity = cash + (shares * current_day_price)
+                    equity_curve_ai.append(current_equity)
+                
+                # 計算基準策略：買入持有 (Buy & Hold) 的資產淨值曲線
+                equity_curve_bh = initial_cash * (test_prices / test_prices[0])
+                
+                # 建構回測對比報表
+                df_backtest = pd.DataFrame({
+                    'AI 智慧量化策略 (AI Tactical)': equity_curve_ai,
+                    '基準策略：死抱不動 (Buy & Hold)': equity_curve_bh
+                }, index=test_dates)
+                
+                # 計算量化核心指標
+                final_ai_val = equity_curve_ai[-1]
+                final_bh_val = equity_curve_bh[-1]
+                total_return_ai = ((final_ai_val - initial_cash) / initial_cash) * 100
+                total_return_bh = ((final_bh_val - initial_cash) / initial_cash) * 100
+                
+                # 渲染核心指標卡片
+                m_col1, m_col2, m_col3 = st.columns(3)
+                m_col1.metric(label="💰 初始模擬交易資金", value=f"{currency_symbol}{initial_cash:,.2f}")
+                m_col2.metric(label="🚀 AI 策略最終淨值 (累積回報)", value=f"{currency_symbol}{final_ai_val:,.2f}", delta=f"{total_return_ai:.2f}%")
+                m_col3.metric(label="⚖️ 基準死抱最終淨值 (累積回報)", value=f"{currency_symbol}{final_bh_val:,.2f}", delta=f"{total_return_bh:.2f}%", delta_color="inverse")
+                
+                # 繪製資產淨值增長對比圖
+                st.markdown("**📊 策略歷史資產淨值增長曲線 (Equity Curve Comparison)**")
+                st.line_chart(df_backtest)
+                
+                st.markdown("---")
+                
+                # ==========================================
+                # 🔮 預報與即時決策
+                # ==========================================
+                st.subheader("🧠 實時多因子融合神經網路預報 (當前最新盤面)")
                 future_target_price = current_price * (1 + next_20d_return)
                 change_20d = next_20d_return * 100
-
-                st.success(f"🎉 20日中長線波段大腦對 {processed_ticker} 訓練完畢！")
                 
-                col1, col2, col3 = st.columns(3)
-                col1.metric(label=f"今日真實收盤價 ({processed_ticker})", value=f"{currency_symbol}{current_price:.2f}")
-                col2.metric(label="AI 預估 20 個交易日後目標價", value=f"{currency_symbol}{future_target_price:.2f}", delta=f"{change_20d:.2f}%")
-                col3.metric(label="波段神經網路學習損失 (MSE Loss)", value=f"{loss.item():.5f}")
-
-                # 繪圖展示
-                chart_data = pd.DataFrame({
-                    '20日後真實歷史價格 (Real Future Price)': y_test_real_price,
-                    'AI 預測20日波段價格 (AI Predicted Future Price)': predictions_real_price
-                }, index=test_dates)
-
-                st.subheader("📊 20日波段整合 - 價格大趨勢還原對比圖")
-                st.line_chart(chart_data)
-
-                st.subheader("🚨 交易員中長線波段決策建議")
-                if change_20d > 3.0:
-                    st.success(f"📈 **波段戰略看漲**：AI 深度融合 P/E 估值邊際與財報賺錢能力後，預估該資產未來一個月（20個交易日）具備強大上攻動能，預期波段漲幅達 **+{change_20d:.2f}%**，建議分批逢低佈局。")
-                elif change_20d < -3.0:
-                    st.error(f"📉 **波段戰略看跌**：AI 偵測到中線動能衰退或估值觸頂，預估未來一個月（20個交易日）面臨回撤壓力，預期波段跌幅達 **{change_20d:.2f}%**，防範回落風險。")
+                p_col1, p_col2, p_col3 = st.columns(3)
+                p_col1.metric(label=f"今日真實收盤價 ({processed_ticker})", value=f"{currency_symbol}{current_price:.2f}")
+                p_col2.metric(label="AI 預估未來 20 天波段目標價", value=f"{currency_symbol}{future_target_price:.2f}", delta=f"{change_20d:.2f}%")
+                p_col3.metric(label="波段訓練學習損失 (MSE Loss)", value=f"{loss.item():.5f}")
+                
+                st.subheader("🚨 交易員波段戰略決策")
+                if change_20d > 2.0:
+                    st.success(f"📈 **波段戰略看漲**：AI 預估未來 20 個交易日具備上攻動能，預期漲幅達 **+{change_20d:.2f}%**。若回測表現優於大盤，可考慮分批逢低佈局。")
+                elif change_20d < -2.0:
+                    st.error(f"📉 **波段戰略看跌**：AI 偵測到中線估值過熱或動能衰退，預估未來 20 個交易日面臨修正，預期跌幅 **{change_20d:.2f}%**，建議保持空倉避險。")
                 else:
-                    st.info(f"⚖️ **波段橫盤震盪**：AI 預估未來一個月（20個交易日）股價將在 **{change_20d:.2f}%** 範圍內窄幅箱型震盪，建議以高股息防禦或網格交易為主。")
+                    st.info(f"⚖️ **波段橫盤震盪**：AI 預估未來一個月股價波動在 **{change_20d:.2f}%** 內，未達到策略開倉閾值，建議持幣觀望。")
 
         except Exception as e:
             st.error(f"運行出錯: {str(e)}")
 else:
-    st.info("💡 請點擊左側面板按鈕，啟動『技術 × 智慧動態估值 × 歷年財報大屏 × 20日波段趨勢』四位一體量化分析。")
+    st.info("💡 請點擊左側面板按鈕，啟動『技術 × 智慧估值 × 歷年財報 × AI 實戰量化回測』終極大腦。")
