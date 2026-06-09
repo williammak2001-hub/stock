@@ -234,3 +234,71 @@ if train_button:
                 y_test = y[train_size:]
 
                 X_train_t = torch.FloatTensor(X[:train_size])
+                y_train_t = torch.FloatTensor(y[:train_size])
+                X_test_t = torch.FloatTensor(X_test)
+
+                model = RationalLSTM(num_features=len(feature_cols))
+                criterion = nn.MSELoss()
+                optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
+
+                epochs = 60
+                for epoch in range(epochs):
+                    model.train()
+                    optimizer.zero_grad()
+                    outputs = model(X_train_t)
+                    loss = criterion(outputs, y_train_t)
+                    loss.backward()
+                    optimizer.step()
+
+                model.eval()
+                with torch.no_grad():
+                    test_preds = model(X_test_t).numpy()
+                    
+                    # 預測「此時此刻」未來 20 天的波段走勢
+                    # 我們拿完整歷史數據（包含最後20天）的最後10天作為特徵輸入
+                    full_matrix = df[feature_cols].values
+                    full_matrix = np.nan_to_num(full_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+                    scaled_full = scaler.transform(full_matrix)
+                    
+                    latest_10_days = scaled_full[-lookback:].reshape(1, lookback, len(feature_cols))
+                    next_20d_return = model(torch.FloatTensor(latest_10_days)).item()
+
+                # 還原絕對股價走勢圖（測試集）
+                test_dates = clean_df.index[train_size + lookback:]
+                base_prices = clean_df['Close'].iloc[train_size + lookback:].values
+                
+                predictions_real_price = base_prices * (1 + test_preds.flatten())
+                y_test_real_price = base_prices * (1 + y_test.flatten())
+                
+                # 計算當下這一刻，20天后的預測絕對目標價
+                future_target_price = current_price * (1 + next_20d_return)
+                change_20d = next_20d_return * 100
+
+                st.success(f"🎉 20日中長線波段大腦對 {processed_ticker} 訓練完畢！")
+                
+                col1, col2, col3 = st.columns(3)
+                col1.metric(label=f"今日真實收盤價 ({processed_ticker})", value=f"{currency_symbol}{current_price:.2f}")
+                col2.metric(label="AI 預估 20 個交易日後目標價", value=f"{currency_symbol}{future_target_price:.2f}", delta=f"{change_20d:.2f}%")
+                col3.metric(label="波段神經網路學習損失 (MSE Loss)", value=f"{loss.item():.5f}")
+
+                # 繪圖展示
+                chart_data = pd.DataFrame({
+                    '20日後真實歷史價格 (Real Future Price)': y_test_real_price,
+                    'AI 預測20日波段價格 (AI Predicted Future Price)': predictions_real_price
+                }, index=test_dates)
+
+                st.subheader("📊 20日波段整合 - 價格大趨勢還原對比圖")
+                st.line_chart(chart_data)
+
+                st.subheader("🚨 交易員中長線波段決策建議")
+                if change_20d > 3.0:
+                    st.success(f"📈 **波段戰略看漲**：AI 深度融合 P/E 估值邊際與財報賺錢能力後，預估該資產未來一個月（20個交易日）具備強大上攻動能，預期波段漲幅達 **+{change_20d:.2f}%**，建議分批逢低佈局。")
+                elif change_20d < -3.0:
+                    st.error(f"📉 **波段戰略看跌**：AI 偵測到中線動能衰退或估值觸頂，預估未來一個月（20個交易日）面臨回撤壓力，預期波段跌幅達 **{change_20d:.2f}%**，防範回落風險。")
+                else:
+                    st.info(f"⚖️ **波段橫盤震盪**：AI 預估未來一個月（20個交易日）股價將在 **{change_20d:.2f}%** 範圍內窄幅箱型震盪，建議以高股息防禦或網格交易為主。")
+
+        except Exception as e:
+            st.error(f"運行出錯: {str(e)}")
+else:
+    st.info("💡 請點擊左側面板按鈕，啟動『技術 × 智慧動態估值 × 歷年財報大屏 × 20日波段趨勢』四位一體量化分析。")
