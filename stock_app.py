@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler
 # 網頁標題與設定
 st.set_page_config(page_title="AI 跨國多因子量化終端", layout="wide")
 st.title("⚖️ AI 深度學習預測 × 多因子基本面量化終端")
-st.markdown("本系統已成功升級！神經網路大腦已融合**技術面動能因子**與**基本面估值因子 (P/E, P/B)**，並啟動數據防禦機制。")
+st.markdown("本系統已成功升級！神經網路大腦已融合**技術面動能因子**與**基本面估值因子 (P/E, P/B)**，並具備高級抗封鎖降級防禦機制。")
 
 # 側邊欄設定
 st.sidebar.header("⚙️ 交易員控制面板")
@@ -39,27 +39,46 @@ if train_button:
     
     with st.spinner(f"⏳ 正在拉取全球聯動數據，構建『技術 × 估值』多因子矩陣..."):
         try:
-            # 1. 抓取股票即時基本面快照 (ticker.info)
-            ticker_obj = yf.Ticker(raw_ticker)
-            info = ticker_obj.info
+            # 1. 【安全防禦核心】嘗試抓取基本面，若被限流則自動啟動安全降級方案
+            pe_ratio = None
+            pb_ratio = None
+            forward_pe = None
+            dividend_yield = 0.0
+            is_rate_limited = False
             
-            pe_ratio = info.get('trailingPE', None)
-            pb_ratio = info.get('priceToBook', None)
-            forward_pe = info.get('forwardPE', None)
-            
-            # 🔥 防禦 1：修復港股股息率放大 100 倍的 yfinance bug
-            raw_yield = info.get('dividendYield', 0.0)
-            if raw_yield is None: raw_yield = 0.0
-            dividend_yield = raw_yield if raw_yield > 1.0 else raw_yield * 100
+            try:
+                ticker_obj = yf.Ticker(raw_ticker)
+                info = ticker_obj.info
+                if info and isinstance(info, dict) and len(info) > 0:
+                    pe_ratio = info.get('trailingPE', None)
+                    pb_ratio = info.get('priceToBook', None)
+                    forward_pe = info.get('forwardPE', None)
+                    
+                    raw_yield = info.get('dividendYield', 0.0)
+                    if raw_yield is None: raw_yield = 0.0
+                    dividend_yield = raw_yield if raw_yield > 1.0 else raw_yield * 100
+                else:
+                    is_rate_limited = True
+            except Exception:
+                # 抓取網頁被拒絕，啟動降級
+                is_rate_limited = True
+                
+            if is_rate_limited:
+                st.warning("⚠️ 偵測到 Yahoo Finance 流量限制 (Rate Limit)，基本面快照已啟動自動防禦降級模式，AI 預測功能維持正常運作。")
+                # 賦予行業常態基準安全值，防止神經網路空值崩潰
+                pe_ratio = 15.0
+                pb_ratio = 1.2
+                forward_pe = 14.5
+                dividend_yield = 3.5
 
-            # 2. 隔離抓取歷史時序數據 (用於訓練)
+            # 2. 隔離抓取歷史時序數據 (這條管道不受網頁爬蟲限流影響)
             df = yf.download(raw_ticker, start="2020-01-01", auto_adjust=False)
             nasdaq = yf.download("^IXIC", start="2020-01-01", auto_adjust=True)
             sse = yf.download("000001.SS", start="2020-01-01", auto_adjust=True)
             hsi = yf.download("^HSI", start="2020-01-01", auto_adjust=True)
             
             if df.empty:
-                st.error(f"❌ Yahoo Finance 拒絕返回「{raw_ticker}」的數據，請確認格式。")
+                st.error(f"❌ 無法獲取「{raw_ticker}」的歷史價格，請確認代碼是否在交易中。")
             else:
                 # 熨平 MultiIndex 欄位
                 for d in [df, nasdaq, sse, hsi]:
@@ -71,7 +90,8 @@ if train_button:
                 # ==========================================
                 # 📊 模組一：基本面估值因子面板
                 # ==========================================
-                st.subheader(f"📊 {raw_ticker} 當前基本面估值快照")
+                status_suffix = " (行業安全替代值)" if is_rate_limited else ""
+                st.subheader(f"📊 {raw_ticker} 當前基本面估值快照{status_suffix}")
                 f_col1, f_col2, f_col3, f_col4 = st.columns(4)
                 
                 with f_col1:
@@ -86,16 +106,6 @@ if train_button:
                 with f_col4:
                     st.metric(label="💰 歷史股息率 (Dividend Yield)", value=f"{dividend_yield:.2f}%")
 
-                # 估值解讀報告
-                with st.expander("👁️ 交易員基本面估值報告（點擊展開）"):
-                    st.markdown("### 📝 估值解讀邏輯：")
-                    if pe_ratio and pe_ratio < 12:
-                        st.write(f"🟢 **本益比偏低 ({pe_ratio:.2f}x)**：當前公司回本週期較短，具備較強的防禦價值，AI 會調高其防禦抗跌權重。")
-                    elif pe_ratio and pe_ratio > 35:
-                        st.write(f"🔴 **本益比偏高 ({pe_ratio:.2f}x)**：市場給予了高增長預期，防守能力較弱，極度依賴資金面的動能推動。")
-                    else:
-                        st.write(f"🟡 **本益比處於常態區間**：估值定價相對合理，短期走勢將高度取決於技術面動能與全球大盤聯動。")
-
                 st.markdown("---")
 
                 # ==========================================
@@ -107,16 +117,15 @@ if train_button:
                 df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
                 df['MACD_Norm'] = (df['EMA12'] - df['EMA26']) / df['Close']
                 
-                # 🔥 防禦 2：重構歷史估值因子，強力攔截「負數/虧損」造成的數學污染
-                safe_pe = pe_ratio if (pe_ratio and pe_ratio > 0) else 15.0
-                safe_pb = pb_ratio if (pb_ratio and pb_ratio > 0) else 1.5
+                # 歷史動態估值矩陣
+                safe_pe = pe_ratio if pe_ratio > 0 else 15.0
+                safe_pb = pb_ratio if pb_ratio > 0 else 1.2
                 current_eps = current_price / safe_pe
                 current_bps = current_price / safe_pb
                 
                 df['Hist_PE_Norm'] = df['Close'] / current_eps
                 df['Hist_PB_Norm'] = df['Close'] / current_bps
                 
-                # 如果歷史估值算出負數（因股價異常），強制拉回正數安全區
                 df['Hist_PE_Norm'] = df['Hist_PE_Norm'].clip(lower=0.1)
                 df['Hist_PB_Norm'] = df['Hist_PB_Norm'].clip(lower=0.1)
                 
@@ -212,7 +221,7 @@ if train_button:
                 col2.metric(label="AI 預測下一個交易日收盤價", value=f"{currency_symbol}{next_price:.2f}", delta=f"{change:.2f}%")
                 col3.metric(label="神經網路學習損失 (MSE Loss)", value=f"{loss.item():.5f}")
 
-                # 💡 終極修護：過濾還原價格圖表中的極端負數噪音
+                # 過濾極端值
                 predictions_real = np.clip(predictions_real, a_min=current_price*0.3, a_max=current_price*3.0)
                 y_test_real = np.clip(y_test_real, a_min=current_price*0.3, a_max=current_price*3.0)
 
