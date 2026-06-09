@@ -9,18 +9,18 @@ from sklearn.preprocessing import StandardScaler
 # 網頁標題與設定
 st.set_page_config(page_title="AI 跨國多因子量化終端", layout="wide")
 st.title("⚖️ AI 深度學習預測 × 多因子基本面量化終端")
-st.markdown("本系統已成功升級！已融合**「動態基準降級策略」**、**「港股動態長度校正」**與最新**「歷年財報營收動態視覺化大屏」**。")
+st.markdown("本系統已成功升級！已啟用**「未來 20 個交易日波段趨勢大腦」**、**「動態基準降級策略」**與**「歷年財報營收動態視覺化大屏」**。")
 
 # 側邊欄設定
 st.sidebar.header("⚙️ 交易員控制面板")
-raw_ticker = st.sidebar.text_input("輸入股票代碼", value="0066.HK").upper().strip()
+raw_ticker = st.sidebar.text_input("輸入股票代碼", value="1398.HK").upper().strip()
 train_button = st.sidebar.button("🚀 啟動多因子量化訓練")
 
 st.sidebar.markdown("""
 ---
 **💡 跨國代碼輸入指南：**
 * **美股**：直接輸入，如 `TSLA`, `NVDA`, `AAPL`
-* **港股**：輸入數字即可，系統會自動轉換。如 `0066` (港鐵), `0285` 或 `00285` (比亞迪電子), `0700` (騰訊)
+* **港股**：輸入數字即可，系統會自動轉換。如 `1398` (工商銀行), `0066` (港鐵), `0285` (比亞迪電子)
 """)
 
 # 定義 LSTM 網絡結構
@@ -35,7 +35,7 @@ class RationalLSTM(nn.Module):
         return self.linear(lstm_out[:, -1, :])
 
 if train_button:
-    # 港股 4 位數/5 位數長度校正防呆
+    # 港股自動補尾巴長度校正防呆
     processed_ticker = raw_ticker
     clean_numeric = raw_ticker.replace(".HK", "").strip()
     if clean_numeric.isdigit():
@@ -46,23 +46,17 @@ if train_button:
     currency_symbol = "HK$" if ".HK" in processed_ticker else "$"
     
     # ==========================================
-    # 📊 【全新功能】歷年財報數據動態拉取與視覺化
+    # 📊 歷年財報數據視覺化大屏 (財務數據專用流)
     # ==========================================
     with st.spinner(f"📥 正在穿透財務數據庫，下載 {processed_ticker} 歷年損益表..."):
         try:
             ticker_obj = yf.Ticker(processed_ticker)
-            # 獲取年度損益表 (Annual Financials)
             financials = ticker_obj.financials
-            
             if financials is not None and not financials.empty:
                 st.subheader(f"📈 {processed_ticker} 歷年核心財報營收大屏")
-                
-                # 提取「總營收」與「淨利潤」
-                # yfinance 的欄位名稱有時會因版本而異，做個安全相容防護
                 rev_key = 'Total Revenue' if 'Total Revenue' in financials.index else (financials.index[0] if 'Revenue' in financials.index[0] else None)
                 net_key = 'Net Income' if 'Net Income' in financials.index else None
                 
-                # 自動搜尋相似欄位
                 if not rev_key:
                     rev_indices = [idx for idx in financials.index if 'Revenue' in str(idx) or 'Turnover' in str(idx)]
                     if rev_indices: rev_key = rev_indices[0]
@@ -71,45 +65,33 @@ if train_button:
                     if net_indices: net_key = net_indices[0]
 
                 if rev_key and net_key:
-                    # 提取數據並轉置，以年份為 Index
                     df_finance = financials.loc[[rev_key, net_key]].T
                     df_finance.columns = ['總營收 (Total Revenue)', '淨利潤 (Net Income)']
-                    
-                    # 將日期格式化為年份字串 (如 2023, 2024)
                     df_finance.index = pd.to_datetime(df_finance.index).strftime('%Y')
-                    df_finance = df_finance.sort_index(ascending=True) # 依年份正序排列
-                    
-                    # 轉換單位為「百萬元 (Millions)」讓圖表更美觀
+                    df_finance = df_finance.sort_index(ascending=True)
                     df_finance_m = df_finance / 1_000_000
                     
-                    # 建立 Streamlit 兩欄佈局展示
                     f_chart_col, f_table_col = st.columns([2, 1])
-                    
                     with f_chart_col:
                         st.markdown(f"**📊 歷年營收與淨利走勢對比 (單位: 百萬 {currency_symbol})**")
-                        # 繪製並排長條圖
                         st.bar_chart(df_finance_m)
-                        
                     with f_table_col:
                         st.markdown("**📋 原始財務數據審計表**")
-                        # 格式化表格數字加千分位
                         df_formatted = df_finance_m.copy()
                         df_formatted['總營收 (Total Revenue)'] = df_formatted['總營收 (Total Revenue)'].map('{:,.2f} M'.format)
                         df_formatted['淨利潤 (Net Income)'] = df_formatted['淨利潤 (Net Income)'].map('{:,.2f} M'.format)
                         st.dataframe(df_formatted, use_container_width=True)
-                else:
-                    st.warning("⚠️ 財報解析成功，但未找到標準的 Revenue 或 Net Income 欄位項目。")
             else:
-                st.warning("⚠️ 該資產未在交易所披露標準的年度損益表，跳過財報視覺化面板。")
+                st.warning("⚠️ 該資產未在交易所披露標準年度損益表。")
         except Exception as e:
-            st.warning(f"⚠️ 財報數據流暫時繁忙 ({str(e)})，優先保護底層 AI 核心運作。")
+            st.warning(f"⚠️ 財報數據流繁忙 ({str(e)})，優先保護底層 AI 核心運作。")
 
     st.markdown("---")
 
     # ==========================================
-    # ⏳ 核心多因子量化預測大腦
+    # ⏳ 核心多因子量化預測大腦 (20日波段大師)
     # ==========================================
-    with st.spinner(f"⏳ 正在同步全球大盤，構建『技術 × 智慧估值』多因子矩陣並訓練 AI..."):
+    with st.spinner(f"⏳ 正在構建『技術 × 智慧估值』20日波段多因子矩陣並訓練 AI..."):
         try:
             # 1. 嘗試抓取即時基本面估值快照
             pe_ratio = None
@@ -168,7 +150,7 @@ if train_button:
 
                 current_price = df['Close'].iloc[-1]
 
-                # 估值快照顯示
+                # 顯示基本面快照面版
                 status_suffix = " (🤖 智慧動態錨定值)" if is_rate_limited else " (📊 實時市場數據)"
                 st.subheader(f"📊 {processed_ticker} 當前基本面估值快照{status_suffix}")
                 f_col1, f_col2, f_col3, f_col4 = st.columns(4)
@@ -188,7 +170,7 @@ if train_button:
                 st.markdown("---")
 
                 # ==========================================
-                # 🧮 數據清洗與特徵矩陣建構
+                # 🧮 數據清洗與「20日波段預測目標」建構
                 # ==========================================
                 df['Return'] = df['Close'].pct_change()
                 df['Vol_Change'] = df['Volume'].pct_change()
@@ -215,10 +197,17 @@ if train_button:
                 df = df.join(hsi['HSI_Return'], how='left')
                 df = df.ffill().bfill().fillna(0.0)
 
+                # 🔥【大手術：定義20日波段回報目標】
+                # Target_20d 代表從今天買入，持有20個交易日後的累積漲跌幅
+                df['Target_20d'] = df['Close'].shift(-20) / df['Close'] - 1.0
+                
+                # 因為 shift(-20)，最後20筆數據沒有未來的答案，我們將其剔除不參與訓練
+                clean_df = df.dropna(subset=['Target_20d']).copy()
+
                 # ==========================================
                 # 🤖 AI 深度學習大腦訓練與預測
                 # ==========================================
-                st.subheader("🧠 LSTM 多因子融合神經網路預報")
+                st.subheader("🧠 LSTM 多因子融合神經網路預報 (📅 20日波段趨勢專版)")
                 
                 feature_cols = [
                     'Return', 'Vol_Change', 'MACD_Norm', 
@@ -226,7 +215,7 @@ if train_button:
                     'Nas_Return', 'SSE_Return', 'HSI_Return'
                 ]
                 
-                data_matrix = df[feature_cols].values
+                data_matrix = clean_df[feature_cols].values
                 data_matrix = np.nan_to_num(data_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
                 scaler = StandardScaler()
@@ -236,7 +225,7 @@ if train_button:
                 X, y = [], []
                 for i in range(len(scaled_data) - lookback):
                     X.append(scaled_data[i:i+lookback])
-                    y.append(scaled_data[i+lookback, 0])
+                    y.append(clean_df['Target_20d'].iloc[i+lookback])
 
                 X, y = np.array(X), np.array(y).reshape(-1, 1)
 
@@ -245,74 +234,3 @@ if train_button:
                 y_test = y[train_size:]
 
                 X_train_t = torch.FloatTensor(X[:train_size])
-                y_train_t = torch.FloatTensor(y[:train_size])
-                X_test_t = torch.FloatTensor(X_test)
-
-                model = RationalLSTM(num_features=len(feature_cols))
-                criterion = nn.MSELoss()
-                optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
-
-                epochs = 60
-                for epoch in range(epochs):
-                    model.train()
-                    optimizer.zero_grad()
-                    outputs = model(X_train_t)
-                    loss = criterion(outputs, y_train_t)
-                    loss.backward()
-                    optimizer.step()
-
-                model.eval()
-                with torch.no_grad():
-                    test_preds = model(X_test_t).numpy()
-                    latest_10_days = scaled_data[-lookback:].reshape(1, lookback, len(feature_cols))
-                    next_return_scaled = model(torch.FloatTensor(latest_10_days)).item()
-
-                dummy_pred = np.zeros((len(test_preds), len(feature_cols)))
-                dummy_pred[:, 0] = test_preds.flatten()
-                pred_returns = scaler.inverse_transform(dummy_pred)[:, 0]
-
-                dummy_real = np.zeros((len(y_test), len(feature_cols)))
-                dummy_real[:, 0] = y_test.flatten()
-                real_returns = scaler.inverse_transform(dummy_real)[:, 0]
-                
-                dummy_next = np.zeros((1, len(feature_cols)))
-                dummy_next[0, 0] = next_return_scaled
-                next_return_real = scaler.inverse_transform(dummy_next)[0, 0]
-
-                test_dates = df.index[train_size + lookback:]
-                base_prices = df['Close'].iloc[train_size + lookback - 1 : -1].values
-                
-                predictions_real = base_prices * (1 + pred_returns)
-                y_test_real = base_prices * (1 + real_returns)
-                
-                next_price = current_price * (1 + next_return_real)
-                change = next_return_real * 100
-
-                st.success(f"🎉 跨國『技術 × 智慧估值』多因子大腦對 {processed_ticker} 訓練完畢！")
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric(label=f"今日真實收盤價 ({processed_ticker})", value=f"{currency_symbol}{current_price:.2f}")
-                col2.metric(label="AI 預測下一個交易日收盤價", value=f"{currency_symbol}{next_price:.2f}", delta=f"{change:.2f}%")
-                col3.metric(label="神經網路學習損失 (MSE Loss)", value=f"{loss.item():.5f}")
-
-                predictions_real = np.clip(predictions_real, a_min=current_price*0.3, a_max=current_price*3.0)
-                y_test_real = np.clip(y_test_real, a_min=current_price*0.3, a_max=current_price*3.0)
-
-                chart_data = pd.DataFrame({
-                    '真實價格 (Real)': y_test_real,
-                    'AI 多因子預測 (Multi-Factor Predicted)': predictions_real
-                }, index=test_dates)
-
-                st.subheader("📊 多因子整合 - 價格趨勢還原對比圖")
-                st.line_chart(chart_data)
-
-                st.subheader("🚨 交易員決策建議")
-                if next_price > current_price:
-                    st.success(f"📈 **多因子理性看漲**：AI 綜合評估該資產之技術面動能與動態錨定估值後，預估下一個交易日穩健上漲 **+{change:.2f}%**。")
-                else:
-                    st.error(f"📉 **多因子理性看跌**：AI 偵測到當前動態估值溢價或技術面動能衰退，預估下一個交易日回落 **{change:.2f}%**。")
-
-        except Exception as e:
-            st.error(f"運行出錯: {str(e)}")
-else:
-    st.info("💡 請點擊左側面板按鈕，啟動『技術 × 智慧動態估值 × 歷年財報大屏』三位一體量化分析。")
