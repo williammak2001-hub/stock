@@ -9,12 +9,12 @@ from sklearn.preprocessing import StandardScaler
 # 網頁標題與設定
 st.set_page_config(page_title="AI 跨國多因子量化終端", layout="wide")
 st.title("⚖️ AI 深度學習預測 × 多因子基本面量化終端")
-st.markdown("本系統已成功升級！已啟用**「AI 策略歷史實戰回測矩陣」**、**「未來 20 日波段預測大腦」**與**「歷年財報視覺化大屏」**。")
+st.markdown("本系統已成功升級！已啟用**「工業級追蹤止盈止損 (Trailing Stop) 回測矩陣」**、**「未來 20 日波段預測大腦」**。")
 
 # 側邊欄設定
 st.sidebar.header("⚙️ 交易員控制面板")
 raw_ticker = st.sidebar.text_input("輸入股票代碼", value="1398.HK").upper().strip()
-train_button = st.sidebar.button("🚀 啟動多因子量化訓練與歷史回測")
+train_button = st.sidebar.button("🚀 啟動多因子量化訓練與追蹤止盈回測")
 
 st.sidebar.markdown("""
 ---
@@ -207,65 +207,72 @@ if train_button:
                     next_20d_return = model(torch.FloatTensor(latest_10_days)).item()
 
                 # ==========================================
-                # ⚔️ 【全新核心模組】量化回測交易模擬引擎
+                # ⚔️ 【重磅升級】追蹤止盈止損回測引擎 (Trailing Stop Engine)
                 # ==========================================
-                st.subheader("⚔️ AI 戰略回測矩陣 (測試集實盤模擬驗證)")
+                st.subheader("⚔️ AI 戰略回測矩陣 (工業級動態止盈止損升級版)")
                 
                 test_dates = clean_df.index[train_size + lookback:]
                 test_prices = clean_df['Close'].iloc[train_size + lookback:].values
                 
-                # 初始化回測變數
                 initial_cash = 100000.0
                 cash = initial_cash
                 shares = 0.0
                 equity_curve_ai = []
-                hold_days = 0
                 
-                # 執行模擬交易日誌循環
+                # 追蹤止盈控制變數
+                highest_price_since_buy = 0.0
+                entry_price = 0.0
+                
                 for i in range(len(test_prices)):
                     current_day_price = test_prices[i]
-                    ai_signal = test_preds[i] # AI 對未來20天的預測回報
+                    ai_signal = test_preds[i]
                     
-                    # 檢查是否需要平倉（如果持股滿20天，或者預測轉向嚴重看跌）
                     if shares > 0:
-                        hold_days += 1
-                        if hold_days >= 20 or ai_signal < -0.02:
+                        # 更新買入後的最高價
+                        if current_day_price > highest_price_since_buy:
+                            highest_price_since_buy = current_day_price
+                        
+                        # 計算回撤幅度
+                        drop_from_max = (highest_price_since_buy - current_day_price) / highest_price_since_buy
+                        drop_from_entry = (entry_price - current_day_price) / entry_price
+                        
+                        # 🔴 觸發賣出條件：
+                        # 1. 追蹤止盈：從最高點回落 3.5% (抱緊牛市)
+                        # 2. 硬性止損：跌破進場成本 4.0%
+                        # 3. AI 反向極度強烈看跌 (< -4.0%)
+                        if drop_from_max > 0.035 or drop_from_entry > 0.04 or ai_signal < -0.04:
                             cash = shares * current_day_price
                             shares = 0.0
-                            hold_days = 0
+                            highest_price_since_buy = 0.0
+                            entry_price = 0.0
                     
-                    # 檢查是否需要開倉買入（AI強烈看漲且當前為現金空倉）
-                    elif cash > 0 and ai_signal > 0.02:
+                    # 🟢 觸發買入條件：AI 看漲大於 1.5%，且手頭全現金空倉
+                    elif cash > 0 and ai_signal > 0.015:
                         shares = cash / current_day_price
                         cash = 0.0
-                        hold_days = 0
+                        entry_price = current_day_price
+                        highest_price_since_buy = current_day_price
                         
-                    # 計算今日總資產淨值 (Equity Value)
                     current_equity = cash + (shares * current_day_price)
                     equity_curve_ai.append(current_equity)
                 
-                # 計算基準策略：買入持有 (Buy & Hold) 的資產淨值曲線
                 equity_curve_bh = initial_cash * (test_prices / test_prices[0])
                 
-                # 建構回測對比報表
                 df_backtest = pd.DataFrame({
-                    'AI 智慧量化策略 (AI Tactical)': equity_curve_ai,
+                    'AI 追蹤止盈策略 (AI Trailing Tactical)': equity_curve_ai,
                     '基準策略：死抱不動 (Buy & Hold)': equity_curve_bh
                 }, index=test_dates)
                 
-                # 計算量化核心指標
                 final_ai_val = equity_curve_ai[-1]
                 final_bh_val = equity_curve_bh[-1]
                 total_return_ai = ((final_ai_val - initial_cash) / initial_cash) * 100
                 total_return_bh = ((final_bh_val - initial_cash) / initial_cash) * 100
                 
-                # 渲染核心指標卡片
                 m_col1, m_col2, m_col3 = st.columns(3)
                 m_col1.metric(label="💰 初始模擬交易資金", value=f"{currency_symbol}{initial_cash:,.2f}")
                 m_col2.metric(label="🚀 AI 策略最終淨值 (累積回報)", value=f"{currency_symbol}{final_ai_val:,.2f}", delta=f"{total_return_ai:.2f}%")
                 m_col3.metric(label="⚖️ 基準死抱最終淨值 (累積回報)", value=f"{currency_symbol}{final_bh_val:,.2f}", delta=f"{total_return_bh:.2f}%", delta_color="inverse")
                 
-                # 繪製資產淨值增長對比圖
                 st.markdown("**📊 策略歷史資產淨值增長曲線 (Equity Curve Comparison)**")
                 st.line_chart(df_backtest)
                 
@@ -284,9 +291,9 @@ if train_button:
                 p_col3.metric(label="波段訓練學習損失 (MSE Loss)", value=f"{loss.item():.5f}")
                 
                 st.subheader("🚨 交易員波段戰略決策")
-                if change_20d > 2.0:
-                    st.success(f"📈 **波段戰略看漲**：AI 預估未來 20 個交易日具備上攻動能，預期漲幅達 **+{change_20d:.2f}%**。若回測表現優於大盤，可考慮分批逢低佈局。")
-                elif change_20d < -2.0:
+                if change_20d > 1.5:
+                    st.success(f"📈 **波段戰略看漲**：AI 預估未來 20 個交易日具備上攻動能，預期漲幅達 **+{change_20d:.2f}%**。")
+                elif change_20d < -1.5:
                     st.error(f"📉 **波段戰略看跌**：AI 偵測到中線估值過熱或動能衰退，預估未來 20 個交易日面臨修正，預期跌幅 **{change_20d:.2f}%**，建議保持空倉避險。")
                 else:
                     st.info(f"⚖️ **波段橫盤震盪**：AI 預估未來一個月股價波動在 **{change_20d:.2f}%** 內，未達到策略開倉閾值，建議持幣觀望。")
