@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler
 # 網頁標題與設定
 st.set_page_config(page_title="AI 跨國多因子量化終端", layout="wide")
 st.title("⚖️ AI 深度學習預測 × 多因子基本面量化終端")
-st.markdown("本系統已成功升級！神經網路大腦已融合**技術面動能因子**與**基本面估值因子 (P/E, P/B)**，並具備高級抗封鎖降級防禦機制。")
+st.markdown("本系統已成功升級！神經網路大腦已融合**技術面動能因子**與**基本面估值因子 (P/E, P/B)**，並具備高級抗封鎖與代碼防呆機制。")
 
 # 側邊欄設定
 st.sidebar.header("⚙️ 交易員控制面板")
@@ -35,11 +35,18 @@ class RationalLSTM(nn.Module):
         return self.linear(lstm_out[:, -1, :])
 
 if train_button:
-    currency_symbol = "HK$" if ".HK" in raw_ticker else "$"
+    # 🔥【新防呆機制】如果用戶只輸入純數字(如 0068 或 68)，自動補上 .HK 變成標準港股格式
+    processed_ticker = raw_ticker
+    if raw_ticker.isdigit():
+        # 如果不滿4位數，前面自動補零，再加 .HK
+        processed_ticker = f"{raw_ticker.zfill(4)}.HK"
+        st.info(f"🤖 偵測到純數字輸入，系統已自動優化代碼格式為：`{processed_ticker}`")
+
+    currency_symbol = "HK$" if ".HK" in processed_ticker else "$"
     
     with st.spinner(f"⏳ 正在拉取全球聯動數據，構建『技術 × 估值』多因子矩陣..."):
         try:
-            # 1. 【安全防禦核心】嘗試抓取基本面，若被限流則自動啟動安全降級方案
+            # 1. 嘗試抓取基本面，若被限流則自動啟動安全降級方案
             pe_ratio = None
             pb_ratio = None
             forward_pe = None
@@ -47,7 +54,7 @@ if train_button:
             is_rate_limited = False
             
             try:
-                ticker_obj = yf.Ticker(raw_ticker)
+                ticker_obj = yf.Ticker(processed_ticker)
                 info = ticker_obj.info
                 if info and isinstance(info, dict) and len(info) > 0:
                     pe_ratio = info.get('trailingPE', None)
@@ -60,27 +67,24 @@ if train_button:
                 else:
                     is_rate_limited = True
             except Exception:
-                # 抓取網頁被拒絕，啟動降級
                 is_rate_limited = True
                 
             if is_rate_limited:
                 st.warning("⚠️ 偵測到 Yahoo Finance 流量限制 (Rate Limit)，基本面快照已啟動自動防禦降級模式，AI 預測功能維持正常運作。")
-                # 賦予行業常態基準安全值，防止神經網路空值崩潰
                 pe_ratio = 15.0
                 pb_ratio = 1.2
                 forward_pe = 14.5
                 dividend_yield = 3.5
 
-            # 2. 隔離抓取歷史時序數據 (這條管道不受網頁爬蟲限流影響)
-            df = yf.download(raw_ticker, start="2020-01-01", auto_adjust=False)
+            # 2. 歷史數據抓取 (改用防呆後的 processed_ticker)
+            df = yf.download(processed_ticker, start="2020-01-01", auto_adjust=False)
             nasdaq = yf.download("^IXIC", start="2020-01-01", auto_adjust=True)
             sse = yf.download("000001.SS", start="2020-01-01", auto_adjust=True)
             hsi = yf.download("^HSI", start="2020-01-01", auto_adjust=True)
             
             if df.empty:
-                st.error(f"❌ 無法獲取「{raw_ticker}」的歷史價格，請確認代碼是否在交易中。")
+                st.error(f"❌ 無法獲取「{processed_ticker}」的歷史價格，請確認代碼是否正確或正在交易中。")
             else:
-                # 熨平 MultiIndex 欄位
                 for d in [df, nasdaq, sse, hsi]:
                     if isinstance(d.columns, pd.MultiIndex):
                         d.columns = d.columns.get_level_values(0)
@@ -91,7 +95,7 @@ if train_button:
                 # 📊 模組一：基本面估值因子面板
                 # ==========================================
                 status_suffix = " (行業安全替代值)" if is_rate_limited else ""
-                st.subheader(f"📊 {raw_ticker} 當前基本面估值快照{status_suffix}")
+                st.subheader(f"📊 {processed_ticker} 當前基本面估值快照{status_suffix}")
                 f_col1, f_col2, f_col3, f_col4 = st.columns(4)
                 
                 with f_col1:
@@ -117,7 +121,6 @@ if train_button:
                 df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
                 df['MACD_Norm'] = (df['EMA12'] - df['EMA26']) / df['Close']
                 
-                # 歷史動態估值矩陣
                 safe_pe = pe_ratio if pe_ratio > 0 else 15.0
                 safe_pb = pb_ratio if pb_ratio > 0 else 1.2
                 current_eps = current_price / safe_pe
@@ -125,16 +128,13 @@ if train_button:
                 
                 df['Hist_PE_Norm'] = df['Close'] / current_eps
                 df['Hist_PB_Norm'] = df['Close'] / current_bps
-                
                 df['Hist_PE_Norm'] = df['Hist_PE_Norm'].clip(lower=0.1)
                 df['Hist_PB_Norm'] = df['Hist_PB_Norm'].clip(lower=0.1)
                 
-                # 大盤回報
                 nasdaq['Nas_Return'] = nasdaq['Close'].pct_change()
                 sse['SSE_Return'] = sse['Close'].pct_change()
                 hsi['HSI_Return'] = hsi['Close'].pct_change()
                 
-                # 合併所有因子
                 df = df.join(nasdaq['Nas_Return'], how='left')
                 df = df.join(sse['SSE_Return'], how='left')
                 df = df.join(hsi['HSI_Return'], how='left')
@@ -192,7 +192,6 @@ if train_button:
                     latest_10_days = scaled_data[-lookback:].reshape(1, lookback, len(feature_cols))
                     next_return_scaled = model(torch.FloatTensor(latest_10_days)).item()
 
-                # 還原絕對股價
                 dummy_pred = np.zeros((len(test_preds), len(feature_cols)))
                 dummy_pred[:, 0] = test_preds.flatten()
                 pred_returns = scaler.inverse_transform(dummy_pred)[:, 0]
@@ -214,14 +213,13 @@ if train_button:
                 next_price = current_price * (1 + next_return_real)
                 change = next_return_real * 100
 
-                st.success(f"🎉 跨國『技術 × 估值』多因子大腦對 {raw_ticker} 訓練完畢！")
+                st.success(f"🎉 跨國『技術 × 估值』多因子大腦對 {processed_ticker} 訓練完畢！")
                 
                 col1, col2, col3 = st.columns(3)
-                col1.metric(label=f"今日真實收盤價 ({raw_ticker})", value=f"{currency_symbol}{current_price:.2f}")
+                col1.metric(label=f"今日真實收盤價 ({processed_ticker})", value=f"{currency_symbol}{current_price:.2f}")
                 col2.metric(label="AI 預測下一個交易日收盤價", value=f"{currency_symbol}{next_price:.2f}", delta=f"{change:.2f}%")
                 col3.metric(label="神經網路學習損失 (MSE Loss)", value=f"{loss.item():.5f}")
 
-                # 過濾極端值
                 predictions_real = np.clip(predictions_real, a_min=current_price*0.3, a_max=current_price*3.0)
                 y_test_real = np.clip(y_test_real, a_min=current_price*0.3, a_max=current_price*3.0)
 
@@ -233,7 +231,6 @@ if train_button:
                 st.subheader("📊 多因子整合 - 價格趨勢還原對比圖")
                 st.line_chart(chart_data)
 
-                # 決策建議
                 st.subheader("🚨 交易員決策建議")
                 if next_price > current_price:
                     st.success(f"📈 **多因子理性看漲**：AI 綜合評估該資產之技術面動能與 P/E 估值安全邊際後，預估下一個交易日穩健上漲 **+{change:.2f}%**。")
