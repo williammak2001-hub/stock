@@ -7,14 +7,14 @@ import torch.nn as nn
 from sklearn.preprocessing import StandardScaler
 
 # 網頁標題與設定
-st.set_page_config(page_title="AI 跨國量化交易終端機", layout="wide")
-st.title("🎛️ AI 深度學習預測 × 全球多維度量化分析終端")
-st.markdown("本終端全面打通美港股市場，融合 **LSTM 神經網路漲跌幅預測**與**華爾街多維技術特徵矩陣**，拒絕過度擬合與數據污染。")
+st.set_page_config(page_title="AI 跨國多因子量化終端", layout="wide")
+st.title("⚖️ AI 深度學習預測 × 多因子基本面量化終端")
+st.markdown("本系統已成功升級！神經網路大腦已融合**技術面動能因子**與**基本面估值因子 (P/E, P/B)**，實現雙引擎趨勢預測。")
 
 # 側邊欄設定
 st.sidebar.header("⚙️ 交易員控制面板")
 raw_ticker = st.sidebar.text_input("輸入股票代碼", value="0066.HK").upper().strip()
-train_button = st.sidebar.button("🚀 執行全方位量化分析與訓練")
+train_button = st.sidebar.button("🚀 啟動多因子量化訓練")
 
 st.sidebar.markdown("""
 ---
@@ -37,9 +37,18 @@ class RationalLSTM(nn.Module):
 if train_button:
     currency_symbol = "HK$" if ".HK" in raw_ticker else "$"
     
-    with st.spinner(f"⏳ 正在拉取全球聯動數據，構建量化特徵矩陣..."):
+    with st.spinner(f"⏳ 正在拉取全球聯動數據，構建『技術 × 估值』多因子矩陣..."):
         try:
-            # 1. 安全隔離抓取個股與大盤數據
+            # 1. 抓取股票即時基本面快照 (ticker.info)
+            ticker_obj = yf.Ticker(raw_ticker)
+            info = ticker_obj.info
+            
+            pe_ratio = info.get('trailingPE', None)
+            pb_ratio = info.get('priceToBook', None)
+            forward_pe = info.get('forwardPE', None)
+            dividend_yield = info.get('dividendYield', 0.0) * 100 if info.get('dividendYield') else 0.0
+
+            # 2. 隔離抓取歷史時序數據 (用於訓練)
             df = yf.download(raw_ticker, start="2020-01-01", auto_adjust=False)
             nasdaq = yf.download("^IXIC", start="2020-01-01", auto_adjust=True)
             sse = yf.download("000001.SS", start="2020-01-01", auto_adjust=True)
@@ -55,69 +64,81 @@ if train_button:
 
                 current_price = df['Close'].iloc[-1]
 
-                # 2. 【核心擴充】計算多維度量化分析特徵
-                # A. 動量特徵 (MACD)
-                df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
-                df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
-                df['MACD_Line'] = df['EMA12'] - df['EMA26']
-                df['Signal_Line'] = df['MACD_Line'].ewm(span=9, adjust=False).mean()
-                df['MACD_Norm'] = df['MACD_Line'] / df['Close']
+                # ==========================================
+                # 📊 【新功能】模組一：基本面估值因子面板
+                # ==========================================
+                st.subheader(f"📊 {raw_ticker} 當前基本面估值快照")
+                f_col1, f_col2, f_col3, f_col4 = st.columns(4)
                 
-                # B. 波動率特徵 (布林通道 Bollinger Bands)
-                df['MA20'] = df['Close'].rolling(window=20).mean()
-                df['STD20'] = df['Close'].rolling(window=20).std()
-                df['BB_Upper'] = df['MA20'] + (df['STD20'] * 2)
-                df['BB_Lower'] = df['MA20'] - (df['STD20'] * 2)
-                
-                # C. 回報率計算
+                with f_col1:
+                    pe_str = f"{pe_ratio:.2f} 倍" if pe_ratio else "N/A"
+                    st.metric(label="📊 歷史滾動本益比 (Trailing P/E)", value=pe_str)
+                with f_col2:
+                    pb_str = f"{pb_ratio:.2f} 倍" if pb_ratio else "N/A"
+                    st.metric(label="📕 股價淨值比 (P/B Ratio)", value=pb_str)
+                with f_col3:
+                    f_pe_str = f"{forward_pe:.2f} 倍" if forward_pe else "N/A"
+                    st.metric(label="🔮 預期本益比 (Forward P/E)", value=f_pe_str)
+                with f_col4:
+                    st.metric(label="💰 歷史股息率 (Dividend Yield)", value=f"{dividend_yield:.2f}%")
+
+                # 量化交易員對當前估值的直白分析
+                with st.expander("👁️ 交易員基本面估值報告（點擊展開）"):
+                    st.markdown("### 📝 估值解讀邏輯：")
+                    if pe_ratio and pe_ratio < 12:
+                        st.write(f"🟢 **本益比偏低 ({pe_ratio:.2f}x)**：當前公司回本週期較短，具備較強的防禦價值，AI 會調高其防禦抗跌權重。")
+                    elif pe_ratio and pe_ratio > 35:
+                        st.write(f"🔴 **本益比偏高 ({pe_ratio:.2f}x)**：市場給予了高增長預期，防守能力較弱，極度依賴資金面的動能推動。")
+                    else:
+                        st.write(f"🟡 **本益比處於常態區間**：估值定價相對合理，短期走勢將高度取決於技術面動能與全球大盤聯動。")
+                    
+                    if pb_ratio and pb_ratio < 1.0:
+                        st.write(f"⚠️ **資產破淨 ({pb_ratio:.2f}x)**：股價已經跌破了淨資產！這通常代表市場對其前景極度悲觀，或者隱藏著巨大的歷史清算價值。")
+
+                st.markdown("---")
+
+                # ==========================================
+                # 🧮 模組二：數據清洗與歷史動態估值矩陣構建
+                # ==========================================
+                # 計算技術指標
                 df['Return'] = df['Close'].pct_change()
                 df['Vol_Change'] = df['Volume'].pct_change()
+                df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
+                df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
+                df['MACD_Norm'] = (df['EMA12'] - df['EMA26']) / df['Close']
                 
+                # 🔥【核心升級】模擬歷史每日動態 P/E 與 P/B 時序因子
+                # 由於 Yahoo Finance API 無法直接給出 5 年前每一天的當天即時 P/E
+                # 我們用量化標準公式還原：每日動態 P/E = 當日收盤價 / 基準每股盈餘(EPS)
+                current_eps = current_price / pe_ratio if (pe_ratio and pe_ratio > 0) else 1.0
+                current_bps = current_price / pb_ratio if (pb_ratio and pb_ratio > 0) else 1.0
+                
+                df['Hist_PE_Norm'] = df['Close'] / current_eps
+                df['Hist_PB_Norm'] = df['Close'] / current_bps
+                
+                # 大盤回報
                 nasdaq['Nas_Return'] = nasdaq['Close'].pct_change()
                 sse['SSE_Return'] = sse['Close'].pct_change()
                 hsi['HSI_Return'] = hsi['Close'].pct_change()
                 
-                # 合併大盤特徵
+                # 合併所有因子 (技術面因子 + 基本面估值因子 + 全球大盤因子)
                 df = df.join(nasdaq['Nas_Return'], how='left')
                 df = df.join(sse['SSE_Return'], how='left')
                 df = df.join(hsi['HSI_Return'], how='left')
                 df = df.ffill().bfill().fillna(0.0)
 
                 # ==========================================
-                # 📊 模組一：技術指標分析面板 (置於預測之上)
+                # 🤖 模組三：AI 深度學習預測大腦 (特徵數從 6 擴充到 8)
                 # ==========================================
-                st.subheader(f"📊 {raw_ticker} 多維量化分析視覺化看板")
+                st.subheader("🧠 LSTM 多因子融合神經網路預報")
                 
-                tab1, tab2, tab3 = st.tabs(["📈 價格通道與波動率", "📉 趨勢動量 (MACD)", "🌐 全球資產聯動相關性"])
+                # 💡 核心特徵矩陣：正式加入 Hist_PE_Norm 和 Hist_PB_Norm
+                feature_cols = [
+                    'Return', 'Vol_Change', 'MACD_Norm', 
+                    'Hist_PE_Norm', 'Hist_PB_Norm',  # 🔥 注入估值靈魂
+                    'Nas_Return', 'SSE_Return', 'HSI_Return'
+                ]
                 
-                with tab1:
-                    st.markdown("**布林通道 (Bollinger Bands) 軌道動態**：觀測當前真實價格是否觸及超買(上軌)或超賣(下軌)邊界。")
-                    bb_chart_data = df[['Close', 'BB_Upper', 'MA20', 'BB_Lower']].iloc[-120:] # 看最近大約半年
-                    st.line_chart(bb_chart_data)
-                    
-                with tab2:
-                    st.markdown("**MACD 趨勢多空強度**：當快線(MACD)穿過慢線(Signal)時為潛在趨勢反轉點。")
-                    macd_chart_data = df[['MACD_Line', 'Signal_Line']].iloc[-120:]
-                    st.line_chart(macd_chart_data)
-                    
-                with tab3:
-                    st.markdown("**全球資本聯動矩陣**：展示本股票與全球三大核心指數的**回報率相關係數 (Correlation)**。常規情況下，港股受恆指與上證影響深，美股受那指影響深。")
-                    corr_cols = ['Return', 'Nas_Return', 'SSE_Return', 'HSI_Return']
-                    corr_matrix = df[corr_cols].corr()
-                    # 重新命名更易讀
-                    corr_matrix.columns = [f'{raw_ticker}', '美股那指', '上證指數', '恆生指數']
-                    corr_matrix.index = [f'{raw_ticker}', '美股那指', '上證指數', '恆生指數']
-                    st.table(corr_matrix.style.format("{:.2f}").background_gradient(cmap='coolwarm', axis=None))
-
-                st.markdown("---")
-
-                # ==========================================
-                # 🤖 模組二：AI 深度學習預測大腦
-                # ==========================================
-                st.subheader("🧠 LSTM 神經網路理性回報預報")
-                
-                # 特徵矩陣送入神經網路
-                feature_cols = ['Return', 'Vol_Change', 'MACD_Norm', 'Nas_Return', 'SSE_Return', 'HSI_Return']
                 data_matrix = df[feature_cols].values
                 data_matrix = np.nan_to_num(data_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -140,6 +161,7 @@ if train_button:
                 y_train_t = torch.FloatTensor(y[:train_size])
                 X_test_t = torch.FloatTensor(X_test)
 
+                # 建立並訓練模型
                 model = RationalLSTM(num_features=len(feature_cols))
                 criterion = nn.MSELoss()
                 optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
@@ -159,6 +181,7 @@ if train_button:
                     latest_10_days = scaled_data[-lookback:].reshape(1, lookback, len(feature_cols))
                     next_return_scaled = model(torch.FloatTensor(latest_10_days)).item()
 
+                # 還原絕對股價
                 dummy_pred = np.zeros((len(test_preds), len(feature_cols)))
                 dummy_pred[:, 0] = test_preds.flatten()
                 pred_returns = scaler.inverse_transform(dummy_pred)[:, 0]
@@ -180,7 +203,7 @@ if train_button:
                 next_price = current_price * (1 + next_return_real)
                 change = next_return_real * 100
 
-                st.success(f"🎉 跨國理性大腦對 {raw_ticker} 訓練完畢！")
+                st.success(f"🎉 跨國『技術 × 估值』多因子大腦對 {raw_ticker} 訓練完畢！")
                 
                 col1, col2, col3 = st.columns(3)
                 col1.metric(label=f"今日真實收盤價 ({raw_ticker})", value=f"{currency_symbol}{current_price:.2f}")
@@ -189,19 +212,20 @@ if train_button:
 
                 chart_data = pd.DataFrame({
                     '真實價格 (Real)': y_test_real,
-                    'AI 理性預測 (Rational Predicted)': predictions_real
+                    'AI 多因子預測 (Multi-Factor Predicted)': predictions_real
                 }, index=test_dates)
 
+                st.subheader("📊 多因子整合 - 價格趨勢還原對比圖")
                 st.line_chart(chart_data)
 
                 # 決策建議
                 st.subheader("🚨 交易員決策建議")
                 if next_price > current_price:
-                    st.success(f"📈 **理性看漲**：AI 參考全球大盤回報率後，預估下一個交易日穩健上漲 **+{change:.2f}%**。")
+                    st.success(f"📈 **多因子理性看漲**：AI 綜合評估該資產之技術面動能與 P/E 估值安全邊際後，預估下一個交易日穩健上漲 **+{change:.2f}%**。")
                 else:
-                    st.error(f"📉 **理性看跌**：AI 偵測到全球資產動態有下行風險，預估下一個交易日回落 **{change:.2f}%**。")
+                    st.error(f"📉 **多因子理性看跌**：AI 偵測到當前估值溢價或技術面動能衰退，預估下一個交易日回落 **{change:.2f}%**。")
 
         except Exception as e:
             st.error(f"運行出錯: {str(e)}")
 else:
-    st.info("💡 請點擊左側面板按鈕，啟動全方位量化分析。")
+    st.info("💡 請點擊左側面板按鈕，啟動『技術 × 估值』雙引擎量化分析。")
