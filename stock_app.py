@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler
 # 網頁標題與設定
 st.set_page_config(page_title="AI 跨國多因子量化終端", layout="wide")
 st.title("⚖️ AI 深度學習預測 × 多因子基本面量化終端")
-st.markdown("本系統已成功升級！已啟用**「動態基準降級策略 (Dynamic Fallback)」**，當遭遇 API 限流時，AI 將根據資產屬性精準分配行業安全估值。")
+st.markdown("本系統已成功升級！已啟用**「動態基準降級策略 (Dynamic Fallback)」**與**「港股動態長度校正機制」**，全面兼容 4 位與 5 位數港股代碼。")
 
 # 側邊欄設定
 st.sidebar.header("⚙️ 交易員控制面板")
@@ -20,7 +20,7 @@ st.sidebar.markdown("""
 ---
 **💡 跨國代碼輸入指南：**
 * **美股**：直接輸入，如 `TSLA`, `NVDA`, `AAPL`
-* **港股**：輸入4位數字加 `.HK`，如 `0066.HK` (港鐵), `0700.HK` (騰訊), `0005.HK` (匯豐)
+* **港股**：輸入數字即可，系統會自動轉換。如 `0066` (港鐵), `0285` 或 `00285` (比亞迪電子), `0700` (騰訊)
 """)
 
 # 定義 LSTM 網絡結構
@@ -35,11 +35,18 @@ class RationalLSTM(nn.Module):
         return self.linear(lstm_out[:, -1, :])
 
 if train_button:
-    # 港股自動補尾巴格式化
+    # 🔥【終極防呆機制】解決 Yahoo Finance 對港股 4 位數/5 位數的歷史數據代碼衝突
     processed_ticker = raw_ticker
-    if raw_ticker.isdigit():
-        processed_ticker = f"{raw_ticker.zfill(4)}.HK"
-        st.info(f"🤖 偵測到純數字輸入，系統已自動優化代碼格式為：`{processed_ticker}`")
+    
+    # 移除可能帶有的 .HK 後綴先進行純數字清洗
+    clean_numeric = raw_ticker.replace(".HK", "").strip()
+    
+    if clean_numeric.isdigit():
+        # 轉成整數再轉回來，自動去掉最前面多餘的零（例如 00285 -> 285）
+        val = int(clean_numeric)
+        # Yahoo Finance 港股標準：代碼部分必須維持 4 碼（不夠前面補0，多了如 285 補成 0285）
+        processed_ticker = f"{str(val).zfill(4)}.HK"
+        st.info(f"🤖 偵測到數字輸入，系統已啟動長度校正，優化代碼格式為標準 Yahoo 港股：`{processed_ticker}`")
 
     currency_symbol = "HK$" if ".HK" in processed_ticker else "$"
     
@@ -68,25 +75,20 @@ if train_button:
             except Exception:
                 is_rate_limited = True
                 
-            # 🔥【動態防禦核心優化】告別單一固定值，根據股票特性智能分配行業錨定估值
+            # 動態防禦核心
             if is_rate_limited:
-                # 象限一：美股明星科技與成長股 (高成長、高溢價生態)
                 if any(tech_symbol in processed_ticker for tech_symbol in ['TSLA', 'NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOG', 'META', 'AMD', 'NFLX']):
                     st.warning("⚠️ 觸發流量限制！已為美股高成長資產啟動【科技龍頭動態估值錨定方案】。")
                     pe_ratio = 32.50
                     pb_ratio = 4.80
                     forward_pe = 28.00
                     dividend_yield = 0.50
-                
-                # 象限二：港股藍籌與價值防禦股 (高股息、穩健現金流生態)
                 elif ".HK" in processed_ticker:
                     st.warning("⚠️ 觸發流量限制！已為香港本地資產啟動【港股價值藍籌動態估值錨定方案】。")
                     pe_ratio = 11.20
                     pb_ratio = 0.95
                     forward_pe = 10.50
                     dividend_yield = 4.80
-                
-                # 象限三：常態大盤均衡型資產
                 else:
                     st.warning("⚠️ 觸發流量限制！已啟動【跨國均衡型資產基準估值錨定方案】。")
                     pe_ratio = 16.50
@@ -94,7 +96,7 @@ if train_button:
                     forward_pe = 15.00
                     dividend_yield = 2.10
 
-            # 2. 歷史數據抓取
+            # 2. 歷史數據抓取 (此時 processed_ticker 已完美校正為 0285.HK)
             df = yf.download(processed_ticker, start="2020-01-01", auto_adjust=False)
             nasdaq = yf.download("^IXIC", start="2020-01-01", auto_adjust=True)
             sse = yf.download("000001.SS", start="2020-01-01", auto_adjust=True)
@@ -110,7 +112,7 @@ if train_button:
                 current_price = df['Close'].iloc[-1]
 
                 # ==========================================
-                # 📊 模組一：基本面估值因子面板
+                # 📊 模組一：基本面估值面板
                 # ==========================================
                 status_suffix = " (🤖 智慧動態錨定值)" if is_rate_limited else " (📊 實時市場數據)"
                 st.subheader(f"📊 {processed_ticker} 當前基本面估值快照{status_suffix}")
@@ -139,7 +141,6 @@ if train_button:
                 df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
                 df['MACD_Norm'] = (df['EMA12'] - df['EMA26']) / df['Close']
                 
-                # 基於智慧防禦值的時序還原公式
                 safe_pe = pe_ratio if pe_ratio > 0 else 15.0
                 safe_pb = pb_ratio if pb_ratio > 0 else 1.2
                 current_eps = current_price / safe_pe
