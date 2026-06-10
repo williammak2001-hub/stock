@@ -12,7 +12,7 @@ import matplotlib.dates as mdates
 # 網頁標題與設定
 st.set_page_config(page_title="AI 全球資產配置與勝率審計終端", layout="wide")
 st.title("⚖️ AI 深度學習預測 × 馬可維茲配倉 × 成功率審計大屏")
-st.markdown("本系統已全面封頂！已啟用**「Transformer 自注意力預測大腦」**、**「馬可維茲優化矩陣」**與**「AI 歷史預測成功率審計與圖表引擎」**。")
+st.markdown("本系統已全面封頂！已啟用**「Transformer 自注意力預測大腦」**、**「馬可維茲優化矩陣」**與**「動態自選股票成功率透視面板」**。")
 
 # 自注意力時序神經網路
 class AttentionLSTM(nn.Module):
@@ -41,6 +41,13 @@ ticker_input = st.sidebar.text_area("🛰️ 自訂核心資產池代碼 (英文
 risk_free_rate = st.sidebar.slider("💵 模擬無風險年化利率 (%)", min_value=0.0, max_value=6.0, value=3.5, step=0.1)
 scan_button = st.sidebar.button("🚀 啟動 AI 投資組合優化與勝率審計")
 
+# 🔑 使用 Streamlit 的 session_state 來保持掃描後的數據，這樣切換選單時網頁才不會重刷消失
+if "scan_done" not in st.session_state:
+    st.session_state.scan_done = False
+    st.session_state.df_display = None
+    st.session_state.audit_data = {}
+    st.session_state.metrics = {}
+
 if scan_button:
     ticker_list = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
     st.subheader(f"🛰️ 全球 AI 矩陣運算、馬可維茲優化與成功率審計中... (資產池共 {len(ticker_list)} 支標的)")
@@ -49,9 +56,7 @@ if scan_button:
     p_returns = {}
     historical_returns_dict = {}
     radar_results = []
-    
-    # 用於儲存勝率審計歷史數據的核心容器
-    audit_data = {}
+    audit_data_temp = {}
     
     with st.spinner("📥 正在同步全球大盤指數與宏觀環境流 (美債收益率/黃金/納指/恆指)..."):
         nasdaq = yf.download("^IXIC", start="2020-01-01", auto_adjust=True)
@@ -142,7 +147,6 @@ if scan_button:
                 
             model.eval()
             with torch.no_grad():
-                # 1. 預測當前未來的 20 日回報
                 scaled_full = scaler.transform(np.nan_to_num(df[feature_cols].values, nan=0.0))
                 latest_10_days = scaled_full[-lookback:].reshape(1, lookback, len(feature_cols))
                 raw_pred_return = model(torch.FloatTensor(latest_10_days)).item()
@@ -150,12 +154,11 @@ if scan_button:
                 p_returns[processed_ticker] = clipped_pred_return
                 future_target_price = current_price * (1 + clipped_pred_return)
                 
-                # 2. 📊 【新增：審計引擎底層】回測過去 60 天 AI 的歷史預測成功率
+                # 滾動窗口審計引擎
                 hist_preds = []
                 hist_actuals = []
                 hist_dates = []
                 
-                # 抽出過去 60 天的滾動窗口進行密集成功率審計
                 for j in range(len(scaled_data) - lookback - 60, len(scaled_data) - lookback):
                     if j < 0: continue
                     window = scaled_data[j:j+lookback].reshape(1, lookback, len(feature_cols))
@@ -169,20 +172,16 @@ if scan_button:
                     hist_actuals.append(current_close * (1 + actual_ret))
                     hist_dates.append(clean_df.index[j+lookback])
                 
-                # 計算該股的歷史成功率指標
                 preds_arr = np.array(hist_preds)
                 actuals_arr = np.array(hist_actuals)
                 
-                # 猜對方向的勝率：(預測漲且實際漲) 或 (預測跌且實際跌)
                 pred_dir = preds_arr > clean_df['Close'].iloc[len(scaled_data)-len(preds_arr):].values
                 actual_dir = actuals_arr > clean_df['Close'].iloc[len(scaled_data)-len(actuals_arr):].values
                 directional_win_rate = np.mean(pred_dir == actual_dir) * 100.0
-                
-                # 平均絕對誤差百分比 (MAPE) -> 價格精準度 = 100% - MAPE
                 mape = np.mean(np.abs((actuals_arr - preds_arr) / actuals_arr)) * 100.0
                 price_accuracy = max(0.0, 100.0 - mape)
                 
-                audit_data[processed_ticker] = {
+                audit_data_temp[processed_ticker] = {
                     "dates": hist_dates,
                     "preds": hist_preds,
                     "actuals": hist_actuals,
@@ -202,10 +201,6 @@ if scan_button:
             continue
         progress_bar.progress((idx + 1) / len(ticker_list))
         
-    # =========================================================
-    # 🏁 核心演算法：馬可維茲最高夏普比率優化計算
-    # =========================================================
-    st.markdown("---")
     if len(radar_results) >= 2:
         df_hist_ret = pd.DataFrame(historical_returns_dict).fillna(0.0)
         valid_tickers = df_hist_ret.columns.tolist()
@@ -248,54 +243,85 @@ if scan_button:
         df_display = df_portfolio.copy()
         df_display["🏆 實戰推薦分配權重 (Weight)"] = df_display["🏆 實戰推薦分配權重 (Weight)"].map("{:.2f}%".format)
         
-        # 1. 渲染馬可維茲黃金配倉大表
-        st.subheader("📊 華爾街頂級寬客決策——AI馬可維茲黃金配倉與勝率審計大表")
-        st.dataframe(df_display, use_container_width=True)
-        
-        # 2. 📊 【全新解鎖】渲染預測成功率實時可視化圖表
-        st.markdown("---")
-        st.subheader("📈 核心資產：AI 預測目標價 vs 20天后真實走勢審計圖表")
-        
-        # 挑選出權重最高的股票來畫圖對比
-        top_stock_to_plot = df_portfolio.iloc[0]["資產代碼 (Ticker)"]
-        
-        if top_stock_to_plot in audit_data:
-            data_plot = audit_data[top_stock_to_plot]
-            
-            fig, ax = plt.subplots(figsize=(14, 5))
-            ax.plot(data_plot["dates"], data_plot["actuals"], label="Realized 20d Later Price (真實走勢)", color="#2ca02c", linewidth=2.5, linestyle='-')
-            ax.plot(data_plot["dates"], data_plot["preds"], label="AI Attention Predicted Price (AI預估價格)", color="#ff7f0e", linewidth=2.0, linestyle='--')
-            
-            ax.set_title(f"🔍 Asset {top_stock_to_plot} 預測成功率審計對比藍圖 (歷史勝率: {data_plot['win_rate']:.1f}%)", fontsize=14, fontweight='bold')
-            ax.set_xlabel("歷史交易日期 (Timeline)", fontsize=11)
-            ax.set_ylabel("資產價格 (Price)", fontsize=11)
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-            ax.grid(True, linestyle=':', alpha=0.6)
-            ax.legend(loc="upper left", fontsize=10)
-            
-            st.pyplot(fig)
-            
-        # 3. 展示投資組合的核心健康指標
+        # 算組合平均指標
         p_opt_ret_20d = np.sum([p_returns[t] * optimal_weights[i] for i, t in enumerate(valid_tickers)]) * 100
         p_opt_daily_vol = np.sqrt(np.dot(optimal_weights.T, np.dot(cov_matrix, optimal_weights)))
         p_opt_sharpe_annual = ((np.sum(exp_returns * optimal_weights) - rf_daily) / p_opt_daily_vol) * np.sqrt(252) if p_opt_daily_vol > 0 else 0
-        
-        # 算組合平均勝率
         avg_win_rate = np.mean([radar_results[k]["方向預測勝率 (Win Rate)"] for k in range(len(radar_results))])
         avg_price_acc = np.mean([radar_results[k]["目標價精準度 (Accuracy)"] for k in range(len(radar_results))])
         
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("🎯 組合預期 20 日總回報", f"{p_opt_ret_20d:+.2f}%")
-        with col2:
-            st.metric("📈 整體年化夏普比率 (Sharpe)", f"{p_opt_sharpe_annual:.2f}")
-        with col3:
-            st.metric("🎯 系統大腦平均方向勝率", f"{avg_win_rate:.1f}%")
-        with col4:
-            st.metric("📐 系統大腦價格精準度", f"{avg_price_acc:.1f}%")
-            
-        st.info(f"🛰️ **審計長報告**：當前自注意力神經網路在 20 支資產的平均方向勝率為 **{avg_win_rate:.1f}%**，價格預測絕對精準度高達 **{avg_price_acc:.1f}%**。圖表中綠線（真實走勢）與橘線（AI 預測）的擬合程度，就是這台量化雷達實戰成功率的鋼鐵鐵證！")
-    else:
-        st.error("❌ 有效計算資產不足 2 支，無法優化組合。")
-else:
-    st.info("💡 請點擊左側控制面板按鈕，啟動完全體大腦，一鍵生成歷史勝率審計藍圖。")
+        # 🔑 將所有數據存入 Session State 中，供網頁動態切換使用
+        st.session_state.df_display = df_display
+        st.session_state.audit_data = audit_data_temp
+        st.session_state.valid_tickers = valid_tickers
+        st.session_state.metrics = {
+            "ret_20d": p_opt_ret_20d,
+            "sharpe": p_opt_sharpe_annual,
+            "avg_win": avg_win_rate,
+            "avg_acc": avg_price_acc,
+            "top_asset": df_portfolio.iloc[0]["資產代碼 (Ticker)"],
+            "top_weight": df_portfolio.iloc[0]["🏆 實戰推薦分配權重 (Weight)"]
+        }
+        st.session_state.scan_done = True
+
+# =========================================================
+# 🏁 前端動態渲染面板 (當 Session State 裡有數據時觸發)
+# =========================================================
+if st.session_state.scan_done:
+    st.success("🎉 全球 AI 自注意力預測與馬可維茲優化完成！")
+    
+    # 1. 渲染黃金配倉大表
+    st.subheader("📊 華爾街頂級寬客決策——AI馬可維茲黃金配倉與勝率審計大表")
+    st.dataframe(st.session_state.df_display, use_container_width=True)
+    
+    # 2. 🔑 【全新解鎖】自選股票成功率透視下拉選單面板！
+    st.markdown("---")
+    st.subheader("🔮 ⚙️ 核心資產歷史成功率動態透視面板")
+    
+    # 創建動態下拉選單，預設選中推薦權重第一名的股票
+    selected_stock = st.selectbox(
+        "🔎 請選擇您想要透視審計的股票代碼 (Ticker)：", 
+        options=st.session_state.valid_tickers,
+        index=0
+    )
+    
+    # 根據用戶選擇的股票，實時渲染圖表與獨立數據
+    if selected_stock in st.session_state.audit_data:
+        data_plot = st.session_state.audit_data[selected_stock]
+        
+        # 獨立展示這支自選股的單兵作戰勝率
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric(f"🎯 {selected_stock} 歷史方向預測勝率", f"{data_plot['win_rate']:.1f}%")
+        with c2:
+            st.metric(f"📐 {selected_stock} 價格預測絕對精準度", f"{data_plot['accuracy']:.1f}%")
+        
+        # 繪製實時走勢對比圖
+        fig, ax = plt.subplots(figsize=(14, 5.5))
+        ax.plot(data_plot["dates"], data_plot["actuals"], label="Realized 20d Later Price (真實走勢)", color="#2ca02c", linewidth=2.5, linestyle='-')
+        ax.plot(data_plot["dates"], data_plot["preds"], label="AI Attention Predicted Price (AI預估價格)", color="#ff7f0e", linewidth=2.0, linestyle='--')
+        
+        ax.set_title(f"🔍 {selected_stock} 歷史預測與未來貼合度精準審計藍圖", fontsize=13, fontweight='bold')
+        ax.set_xlabel("歷史交易日期 (Timeline)", fontsize=10)
+        ax.set_ylabel("資產價格 (Price)", fontsize=10)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        ax.grid(True, linestyle=':', alpha=0.6)
+        ax.legend(loc="upper left", fontsize=10)
+        
+        st.pyplot(fig)
+        
+    # 3. 展示投資組合全局核心健康指標
+    st.markdown("---")
+    st.subheader("🏛️ 基金整體健康度指標摘要")
+    m = st.session_state.metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("🎯 組合預期 20 日總回報", f"{m['ret_20d']:+.2f}%")
+    with col2:
+        st.metric("📈 整體年化夏普比率 (Sharpe)", f"{m['sharpe']:.2f}")
+    with col3:
+        st.metric("🎯 系統大腦平均方向勝率", f"{m['avg_win']:.1f}%")
+    with col4:
+        st.metric("📐 系統大腦價格精準度", f"{m['avg_acc']:.1f}%")
+        
+    st.info(f"🛰️ **基金經理人風控備註**：當前您正在透過動態面板審計 **{selected_stock}** 的成功率。利用上方下拉選單，您可以自由穿透資產池中的任意標的。這套系統目前已具備了完整的機構級「可視化審計（Visual Audit）」功能！")
