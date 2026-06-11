@@ -41,7 +41,6 @@ ticker_input = st.sidebar.text_area("🛰️ 自訂核心資產池代碼 (英文
 risk_free_rate = st.sidebar.slider("💵 模擬無風險年化利率 (%)", min_value=0.0, max_value=6.0, value=3.5, step=0.1)
 scan_button = st.sidebar.button("🚀 啟動 AI 投資組合優化與勝率審計")
 
-# 🔑 使用 Streamlit 的 session_state 來保持掃描後的數據，這樣切換選單時網頁才不會重刷消失
 if "scan_done" not in st.session_state:
     st.session_state.scan_done = False
     st.session_state.df_display = None
@@ -89,7 +88,9 @@ if scan_button:
             current_price = df['Close'].iloc[-1]
             df['Return'] = df['Close'].pct_change()
             
-            historical_returns_dict[processed_ticker] = df['Return'].tail(60).values
+            # 💡 【核心修復點 1】保留 Series 結構與 Datetime 索引，拒絕使用純 values 陣列
+            historical_returns_dict[processed_ticker] = df['Return'].tail(60)
+            
             recent_vol = df['Return'].tail(60).std()
             max_allowable_return = recent_vol * np.sqrt(20) * 1.5
             
@@ -202,7 +203,8 @@ if scan_button:
         progress_bar.progress((idx + 1) / len(ticker_list))
         
     if len(radar_results) >= 2:
-        df_hist_ret = pd.DataFrame(historical_returns_dict).fillna(0.0)
+        # 💡 【核心修復點 2】使用 pd.concat(..., axis=1) 安全合併不同交易日長度的 Series，並自動補齊缺漏值
+        df_hist_ret = pd.concat(historical_returns_dict, axis=1).fillna(0.0)
         valid_tickers = df_hist_ret.columns.tolist()
         
         exp_returns = np.array([p_returns[t] / 20.0 for t in valid_tickers])
@@ -243,14 +245,12 @@ if scan_button:
         df_display = df_portfolio.copy()
         df_display["🏆 實戰推薦分配權重 (Weight)"] = df_display["🏆 實戰推薦分配權重 (Weight)"].map("{:.2f}%".format)
         
-        # 算組合平均指標
         p_opt_ret_20d = np.sum([p_returns[t] * optimal_weights[i] for i, t in enumerate(valid_tickers)]) * 100
         p_opt_daily_vol = np.sqrt(np.dot(optimal_weights.T, np.dot(cov_matrix, optimal_weights)))
         p_opt_sharpe_annual = ((np.sum(exp_returns * optimal_weights) - rf_daily) / p_opt_daily_vol) * np.sqrt(252) if p_opt_daily_vol > 0 else 0
         avg_win_rate = np.mean([radar_results[k]["方向預測勝率 (Win Rate)"] for k in range(len(radar_results))])
         avg_price_acc = np.mean([radar_results[k]["目標價精準度 (Accuracy)"] for k in range(len(radar_results))])
         
-        # 🔑 將所有數據存入 Session State 中，供網頁動態切換使用
         st.session_state.df_display = df_display
         st.session_state.audit_data = audit_data_temp
         st.session_state.valid_tickers = valid_tickers
@@ -264,39 +264,29 @@ if scan_button:
         }
         st.session_state.scan_done = True
 
-# =========================================================
-# 🏁 前端動態渲染面板 (當 Session State 裡有數據時觸發)
-# =========================================================
+# 前端動態渲染面板
 if st.session_state.scan_done:
-    st.success("🎉 全球 AI 自注意力預測與馬可維茲優化完成！")
-    
-    # 1. 渲染黃金配倉大表
     st.subheader("📊 華爾街頂級寬客決策——AI馬可維茲黃金配倉與勝率審計大表")
     st.dataframe(st.session_state.df_display, use_container_width=True)
     
-    # 2. 🔑 【全新解鎖】自選股票成功率透視下拉選單面板！
     st.markdown("---")
     st.subheader("🔮 ⚙️ 核心資產歷史成功率動態透視面板")
     
-    # 創建動態下拉選單，預設選中推薦權重第一名的股票
     selected_stock = st.selectbox(
         "🔎 請選擇您想要透視審計的股票代碼 (Ticker)：", 
         options=st.session_state.valid_tickers,
         index=0
     )
     
-    # 根據用戶選擇的股票，實時渲染圖表與獨立數據
     if selected_stock in st.session_state.audit_data:
         data_plot = st.session_state.audit_data[selected_stock]
         
-        # 獨立展示這支自選股的單兵作戰勝率
         c1, c2 = st.columns(2)
         with c1:
             st.metric(f"🎯 {selected_stock} 歷史方向預測勝率", f"{data_plot['win_rate']:.1f}%")
         with c2:
             st.metric(f"📐 {selected_stock} 價格預測絕對精準度", f"{data_plot['accuracy']:.1f}%")
         
-        # 繪製實時走勢對比圖
         fig, ax = plt.subplots(figsize=(14, 5.5))
         ax.plot(data_plot["dates"], data_plot["actuals"], label="Realized 20d Later Price (真實走勢)", color="#2ca02c", linewidth=2.5, linestyle='-')
         ax.plot(data_plot["dates"], data_plot["preds"], label="AI Attention Predicted Price (AI預估價格)", color="#ff7f0e", linewidth=2.0, linestyle='--')
@@ -310,7 +300,6 @@ if st.session_state.scan_done:
         
         st.pyplot(fig)
         
-    # 3. 展示投資組合全局核心健康指標
     st.markdown("---")
     st.subheader("🏛️ 基金整體健康度指標摘要")
     m = st.session_state.metrics
@@ -324,4 +313,6 @@ if st.session_state.scan_done:
     with col4:
         st.metric("📐 系統大腦價格精準度", f"{m['avg_acc']:.1f}%")
         
-    st.info(f"🛰️ **基金經理人風控備註**：當前您正在透過動態面板審計 **{selected_stock}** 的成功率。利用上方下拉選單，您可以自由穿透資產池中的任意標的。這套系統目前已具備了完整的機構級「可視化審計（Visual Audit）」功能！")
+    st.info(f"🛰️ **基金經理人風控備註**：當前您正在透過動態面板審計 {selected_stock} 的成功率。利用上方下拉選單，您可以自由穿透資產池中的任意標的。")
+else:
+    st.info("💡 請點擊左側控制面板按鈕，啟動完全體大腦。")
