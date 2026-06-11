@@ -12,7 +12,40 @@ import matplotlib.dates as mdates
 # 網頁標題與設定
 st.set_page_config(page_title="AI 全球資產配置與勝率審計終端", layout="wide")
 st.title("⚖️ AI 深度學習預測 × 馬可維茲配倉 × 成功率審計大屏")
-st.markdown("本系統已全面封頂！已啟用**「Transformer 自注意力預測大腦」**、**「馬可維茲優化矩陣」**與**「yfinance 官方名稱全自動動態解析引擎」**。")
+st.markdown("本系統已全面封頂！已啟用**「Transformer 自注意力預測大腦」**、**「馬可維茲優化矩陣」**與**「混合雙軌制全自動對齊引擎」**。")
+
+# 🏛️ 核心資產黃金中文對照表 (確保最常看的標的 100% 完美顯示中文，無視 API 波動)
+CORE_CHINESE_MAP = {
+    "1398.HK": "工商銀行 (ICBC)",
+    "2800.HK": "盈富基金 (Tracker Fund)",
+    "1810.HK": "小米集團 (Xiaomi)",
+    "0066.HK": "港鐵公司 (MTR Corp)",
+    "0700.HK": "騰訊控股 (Tencent)",
+    "3690.HK": "美團 (Meituan)",
+    "9988.HK": "阿里巴巴 (Alibaba)",
+    "1211.HK": "比亞迪股份 (BYD)",
+    "2318.HK": "中國平安 (Ping An)",
+    "0005.HK": "匯豐控股 (HSBC)",
+    "0941.HK": "中國移動 (China Mobile)",
+    "1930.HK": "晨星中國高股息 (ETF)",
+    "0068.HK": "中國海外發展 (COLI)",
+    "0432.HK": "盈大地產 (PCPD)",
+    "0405.HK": "越秀房託 (Yuexiu REIT)",
+    "3416.HK": "安碩恒生生科 (ETF)",
+    "2802.HK": "華夏恆生科技 (ETF)",
+    "2638.HK": "港燈-SS (HK Electric)",
+    "0285.HK": "比亞迪電子 (BYDE)",
+    "NVDA": "NVIDIA (輝達)",
+    "TSLA": "Tesla (特斯拉)",
+    "AAPL": "Apple (蘋果公司)",
+    "MSFT": "Microsoft (微軟)",
+    "AMZN": "Amazon (亞馬遜)",
+    "GOOG": "Alphabet (谷歌)",
+    "META": "Meta (臉書)",
+    "AMD": "AMD (超微)",
+    "AVGO": "Broadcom (博通)",
+    "NFLX": "Netflix (網飛)"
+}
 
 # 自注意力時序神經網路
 class AttentionLSTM(nn.Module):
@@ -36,7 +69,7 @@ class AttentionLSTM(nn.Module):
 
 # 側邊欄設定
 st.sidebar.header("⚙️ 基金控制中心")
-default_tickers = "NVDA, TSLA, AAPL, MSFT, AMZN, GOOG, META, AMD, AVGO, NFLX, 0700.HK, 1398.HK, 1211.HK, 3690.HK, 9988.HK, 2318.HK, 0005.HK, 0941.HK, 1810.HK, 1997.HK, 0066.HK"
+default_tickers = "1930.HK, 1398.HK, 2800.HK, 0068.HK, 1810.HK, 0432.HK, 0405.HK, 3416.HK, NKE, 2638.HK"
 ticker_input = st.sidebar.text_area("🛰️ 自訂核心資產池代碼 (英文逗號分隔)", value=default_tickers)
 risk_free_rate = st.sidebar.slider("💵 模擬無風險年化利率 (%)", min_value=0.0, max_value=6.0, value=3.5, step=0.1)
 scan_button = st.sidebar.button("🚀 啟動 AI 投資組合優化與勝率審計")
@@ -46,7 +79,6 @@ if "scan_done" not in st.session_state:
     st.session_state.df_display = None
     st.session_state.audit_data = {}
     st.session_state.metrics = {}
-    # 💡 用於全域儲存動態抓取到的名稱對照
     st.session_state.dynamic_name_map = {}
 
 if scan_button:
@@ -60,7 +92,7 @@ if scan_button:
     audit_data_temp = {}
     dynamic_name_map_temp = {}
     
-    with st.spinner("📥 正在同步全球大盤指數與宏觀環境流 (美債收益率/黃金/納指/恆指)..."):
+    with st.spinner("📥 正在同步全球大盤指數與宏觀環境流..."):
         nasdaq = yf.download("^IXIC", start="2020-01-01", auto_adjust=True)
         sse = yf.download("000001.SS", start="2020-01-01", auto_adjust=True)
         hsi = yf.download("^HSI", start="2020-01-01", auto_adjust=True)
@@ -83,13 +115,16 @@ if scan_button:
             if ticker.isdigit():
                 processed_ticker = f"{str(int(ticker)).zfill(4)}.HK"
             
-            # 💡 【核心修改點：全自動名稱解析】
-            # 建立 Ticker 對象並動態獲取官方 longName，若失敗則用代碼保底
-            ticker_obj = yf.Ticker(processed_ticker)
-            try:
-                official_name = ticker_obj.info.get('longName', processed_ticker)
-            except Exception:
-                official_name = processed_ticker
+            # 💡 【核心修改點：雙軌制全自動名稱解析引擎】
+            # 優先從我們定義的黃金字典拿精準中文名，拿不到才去敲 API 抓 longName，再拿不到用代碼保底
+            if processed_ticker in CORE_CHINESE_MAP:
+                official_name = CORE_CHINESE_MAP[processed_ticker]
+            else:
+                try:
+                    ticker_obj = yf.Ticker(processed_ticker)
+                    official_name = ticker_obj.info.get('longName', processed_ticker)
+                except Exception:
+                    official_name = processed_ticker
             
             dynamic_name_map_temp[processed_ticker] = official_name
             
@@ -167,7 +202,6 @@ if scan_button:
                 p_returns[processed_ticker] = clipped_pred_return
                 future_target_price = current_price * (1 + clipped_pred_return)
                 
-                # 滾動窗口審計引擎
                 hist_preds = []
                 hist_actuals = []
                 hist_dates = []
@@ -242,7 +276,6 @@ if scan_button:
             raw_data = next(item for item in radar_results if item["資產代碼 (Ticker)"] == t)
             weight_pct = optimal_weights[i] * 100.0
             
-            # 💡 直接從動態字典裡撈官方名字
             stock_name = dynamic_name_map_temp.get(t, t)
             
             final_portfolio.append({
@@ -290,7 +323,6 @@ if st.session_state.scan_done:
     st.markdown("---")
     st.subheader("🔮 ⚙️ 核心資產歷史成功率動態透視面板")
     
-    # 💡 下拉選單同步調用全自動抓取的官方名稱
     d_map = st.session_state.dynamic_name_map
     ticker_options_with_name = [f"{d_map.get(t, t)} ({t})" for t in st.session_state.valid_tickers]
     
