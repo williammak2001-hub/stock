@@ -12,7 +12,34 @@ import matplotlib.dates as mdates
 # 網頁標題與設定
 st.set_page_config(page_title="AI 全球資產配置與勝率審計終端", layout="wide")
 st.title("⚖️ AI 深度學習預測 × 馬可維茲配倉 × 成功率審計大屏")
-st.markdown("本系統已全面封頂！已啟用**「Transformer 自注意力預測大腦」**、**「馬可維茲優化矩陣」**與**「動態自選股票成功率透視面板」**。")
+st.markdown("本系統已全面封頂！已啟用**「Transformer 自注意力預測大腦」**、**「馬可維茲優化陣列」**與**「股票名稱對齊引擎」**。")
+
+# 🛰️ 全球資產中英文名稱對照字典
+TICKER_NAME_MAP = {
+    "NVDA": "NVIDIA (輝達)",
+    "TSLA": "Tesla (特斯拉)",
+    "AAPL": "Apple (蘋果公司)",
+    "MSFT": "Microsoft (微軟)",
+    "AMZN": "Amazon (亞馬遜)",
+    "GOOG": "Alphabet (谷歌)",
+    "META": "Meta (臉書)",
+    "AMD": "AMD (超微)",
+    "AVGO": "Broadcom (博通)",
+    "NFLX": "Netflix (網飛)",
+    "0700.HK": "騰訊控股 (Tencent)",
+    "1398.HK": "工商銀行 (ICBC)",
+    "1211.HK": "比亞迪股份 (BYD)",
+    "3690.HK": "美團 (Meituan)",
+    "9988.HK": "阿里巴巴 (Alibaba)",
+    "2318.HK": "中國平安 (Ping An)",
+    "0005.HK": "匯豐控股 (HSBC)",
+    "0941.HK": "中國移動 (China Mobile)",
+    "1810.HK": "小米集團 (Xiaomi)",
+    "1997.HK": "九龍倉置業 (Wharf RE)",
+    "3416.HK": "安碩恒生生科 (ETF)",
+    "03416.HK": "安碩恒生生科 (ETF)",
+    "2802.HK": "華夏恆生科技 (ETF)"
+}
 
 # 自注意力時序神經網路
 class AttentionLSTM(nn.Module):
@@ -202,9 +229,7 @@ if scan_button:
         progress_bar.progress((idx + 1) / len(ticker_list))
         
     if len(radar_results) >= 2:
-        # 💡 【核心安全對齊重構】
         df_hist_ret_raw = pd.concat(historical_returns_dict, axis=1).fillna(0.0)
-        # 進行雙向安全篩選，保證進入馬可維茲的 Ticker 兩邊都有數據
         valid_tickers = [t for t in df_hist_ret_raw.columns.tolist() if t in p_returns]
         
         df_hist_ret = df_hist_ret_raw[valid_tickers]
@@ -231,8 +256,12 @@ if scan_button:
             raw_data = next(item for item in radar_results if item["資產代碼 (Ticker)"] == t)
             weight_pct = optimal_weights[i] * 100.0
             
+            # 💡 【核心名稱注入】從字典中查出股票真實名稱，查不到則顯示代碼
+            stock_name = TICKER_NAME_MAP.get(t, t)
+            
             final_portfolio.append({
-                "🏆 實戰推薦分配權重 (Weight)": weight_pct,
+                "🏆 推薦分配權重": weight_pct,
+                "資產名稱 (Asset Name)": stock_name,
                 "資產代碼 (Ticker)": t,
                 "當前現價": raw_data["當前現價"],
                 "AI 預估目標價": raw_data["AI 預估目標價"],
@@ -242,10 +271,10 @@ if scan_button:
             })
             
         df_portfolio = pd.DataFrame(final_portfolio)
-        df_portfolio = df_portfolio.sort_values(by="🏆 實戰推薦分配權重 (Weight)", ascending=False).reset_index(drop=True)
+        df_portfolio = df_portfolio.sort_values(by="🏆 推薦分配權重", ascending=False).reset_index(drop=True)
         
         df_display = df_portfolio.copy()
-        df_display["🏆 實戰推薦分配權重 (Weight)"] = df_display["🏆 實戰推薦分配權重 (Weight)"].map("{:.2f}%".format)
+        df_display["🏆 推薦分配權重"] = df_display["🏆 推薦分配權重"].map("{:.2f}%".format)
         
         p_opt_ret_20d = np.sum([p_returns[t] * optimal_weights[i] for i, t in enumerate(valid_tickers)]) * 100
         p_opt_daily_vol = np.sqrt(np.dot(optimal_weights.T, np.dot(cov_matrix, optimal_weights)))
@@ -262,7 +291,7 @@ if scan_button:
             "avg_win": avg_win_rate,
             "avg_acc": avg_price_acc,
             "top_asset": df_portfolio.iloc[0]["資產代碼 (Ticker)"],
-            "top_weight": df_portfolio.iloc[0]["🏆 實戰推薦分配權重 (Weight)"]
+            "top_weight": df_portfolio.iloc[0]["🏆 推薦分配權重"]
         }
         st.session_state.scan_done = True
 
@@ -274,26 +303,33 @@ if st.session_state.scan_done:
     st.markdown("---")
     st.subheader("🔮 ⚙️ 核心資產歷史成功率動態透視面板")
     
-    selected_stock = st.selectbox(
-        "🔎 請選擇您想要透視審計的股票代碼 (Ticker)：", 
-        options=st.session_state.valid_tickers,
+    # 💡 【優化下拉選單】下拉選單中同時顯示 股票名稱 + 代碼，方便秒讀
+    ticker_options_with_name = [f"{TICKER_NAME_MAP.get(t, t)} ({t})" for t in st.session_state.valid_tickers]
+    
+    selected_option = st.selectbox(
+        "🔎 請選擇您想要透視審計的股票資產：", 
+        options=ticker_options_with_name,
         index=0
     )
+    
+    # 從選中的文本中將純 Ticker 代碼還原出來 (提取括號內的代碼)
+    selected_stock = selected_option.split("(")[-1].replace(")", "").strip()
+    stock_friendly_name = TICKER_NAME_MAP.get(selected_stock, selected_stock)
     
     if selected_stock in st.session_state.audit_data:
         data_plot = st.session_state.audit_data[selected_stock]
         
         c1, c2 = st.columns(2)
         with c1:
-            st.metric(f"🎯 {selected_stock} 歷史方向預測勝率", f"{data_plot['win_rate']:.1f}%")
+            st.metric(f"🎯 {stock_friendly_name} 歷史方向預測勝率", f"{data_plot['win_rate']:.1f}%")
         with c2:
-            st.metric(f"📐 {selected_stock} 價格預測絕對精準度", f"{data_plot['accuracy']:.1f}%")
+            st.metric(f"📐 {stock_friendly_name} 價格預測絕對精準度", f"{data_plot['accuracy']:.1f}%")
         
         fig, ax = plt.subplots(figsize=(14, 5.5))
         ax.plot(data_plot["dates"], data_plot["actuals"], label="Realized 20d Later Price (真實走勢)", color="#2ca02c", linewidth=2.5, linestyle='-')
         ax.plot(data_plot["dates"], data_plot["preds"], label="AI Attention Predicted Price (AI預估價格)", color="#ff7f0e", linewidth=2.0, linestyle='--')
         
-        ax.set_title(f"🔍 {selected_stock} 歷史預測與未來貼合度精準審計藍圖", fontsize=13, fontweight='bold')
+        ax.set_title(f"🔍 {stock_friendly_name} ({selected_stock}) 歷史預測與未來貼合度精準審計藍圖", fontsize=13, fontweight='bold')
         ax.set_xlabel("歷史交易日期 (Timeline)", fontsize=10)
         ax.set_ylabel("資產價格 (Price)", fontsize=10)
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
@@ -304,7 +340,7 @@ if st.session_state.scan_done:
         
     st.markdown("---")
     st.subheader("🏛️ 基金整體健康度指標摘要")
-    m = m = st.session_state.metrics
+    m = st.session_state.metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("🎯 組合預期 20 日總回報", f"{m['ret_20d']:+.2f}%")
@@ -315,6 +351,6 @@ if st.session_state.scan_done:
     with col4:
         st.metric("📐 系統大腦價格精準度", f"{m['avg_acc']:.1f}%")
         
-    st.info(f"🛰️ **基金經理人風控備註**：當前您正在透過動態面板審計 {selected_stock} 的成功率。利用上方下拉選單，您可以自由穿透資產池中的任意標的。")
+    st.info(f"🛰️ **基金經理人風控備註**：當前您正在透過動態面板審計 {stock_friendly_name} 的成功率。")
 else:
     st.info("💡 請點擊左側控制面板按鈕，啟動完全體大腦。")
