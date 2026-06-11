@@ -88,7 +88,6 @@ if scan_button:
             current_price = df['Close'].iloc[-1]
             df['Return'] = df['Close'].pct_change()
             
-            # 💡 【核心修復點 1】保留 Series 結構與 Datetime 索引，拒絕使用純 values 陣列
             historical_returns_dict[processed_ticker] = df['Return'].tail(60)
             
             recent_vol = df['Return'].tail(60).std()
@@ -203,12 +202,15 @@ if scan_button:
         progress_bar.progress((idx + 1) / len(ticker_list))
         
     if len(radar_results) >= 2:
-        # 💡 【核心修復點 2】使用 pd.concat(..., axis=1) 安全合併不同交易日長度的 Series，並自動補齊缺漏值
-        df_hist_ret = pd.concat(historical_returns_dict, axis=1).fillna(0.0)
-        valid_tickers = df_hist_ret.columns.tolist()
+        # 💡 【核心安全對齊重構】
+        df_hist_ret_raw = pd.concat(historical_returns_dict, axis=1).fillna(0.0)
+        # 進行雙向安全篩選，保證進入馬可維茲的 Ticker 兩邊都有數據
+        valid_tickers = [t for t in df_hist_ret_raw.columns.tolist() if t in p_returns]
         
-        exp_returns = np.array([p_returns[t] / 20.0 for t in valid_tickers])
+        df_hist_ret = df_hist_ret_raw[valid_tickers]
         cov_matrix = df_hist_ret.cov().values
+        exp_returns = np.array([p_returns[t] / 20.0 for t in valid_tickers])
+        
         rf_daily = (risk_free_rate / 100.0) / 252.0
         
         def neg_sharpe(weights, exp_returns, cov_matrix, rf_daily):
@@ -302,7 +304,7 @@ if st.session_state.scan_done:
         
     st.markdown("---")
     st.subheader("🏛️ 基金整體健康度指標摘要")
-    m = st.session_state.metrics
+    m = m = st.session_state.metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("🎯 組合預期 20 日總回報", f"{m['ret_20d']:+.2f}%")
